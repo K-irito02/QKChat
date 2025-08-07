@@ -1,0 +1,90 @@
+# Qt6项目Git忽略文件
+
+# ===== 构建目录 =====
+build/
+build-*/
+debug/
+release/
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.moc
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+Makefile*
+*build-*
+*.qm
+*.prl
+
+# ===== CMake生成文件 =====
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# ===== 编译输出文件 =====
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+*.app
+*.a
+*.lib
+*.d
+*.pdb
+*.ilk
+*.exp
+
+# ===== 日志文件 =====
+logs/
+*.log
+控制台.log
+
+# ===== 数据库文件 =====
+*.db
+*.sqlite
+*.sqlite3
+data/
+*.db-journal
+
+# ===== 临时文件 =====
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ===== IDE文件 =====
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ===== 证书文件 =====
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+certs/
+
+# ===== 第三方库 =====
+third-libraries/
+third_party/
+
+# ===== 问题记录目录 =====
+问题记录/
+
+# ===== 操作系统文件 =====
+.DS_Store
+Thumbs.db
+desktop.ini 

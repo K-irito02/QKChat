@@ -1,0 +1,103 @@
+{
+  "server": {
+    "port": 8080,
+    "max_clients": 1000,
+    "heartbeat_interval": 30000,
+    "use_tls": true,
+    "cert_file": "certs/server.crt",
+    "key_file": "certs/server.key"
+  },
+  "database": {
+    "host": "localhost",
+    "port": 3306,
+    "name": "qkchat",
+    "username": "root",
+    "password": "3143285505",
+    "charset": "utf8mb4",
+    "pool_size": 10,
+    "timeout": 30000,
+    "auto_reconnect": true
+  },
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "password": "",
+    "database": 0,
+    "timeout": 5000,
+    "pool_size": 5
+  },
+  "smtp": {
+    "host": "smtp.qq.com",
+    "port": 587,
+    "username": "saokiritoasuna00@qq.com",
+    "password": "ssvbzaqvotjcchjh",
+    "use_tls": true,
+    "from_name": "QKChat Server",
+    "rate_limit": {
+      "interval_seconds": 60,
+      "max_per_hour": 10
+    }
+  },
+  "logging": {
+    "level": "INFO",
+    "console_output": true,
+    "json_format": false,
+    "max_file_size": 104857600,
+    "retention_days": 30,
+    "directory": "",
+    "modules": {
+      "network": {
+        "level": "DEBUG",
+        "separate_file": true
+      },
+      "database": {
+        "level": "INFO",
+        "separate_file": true
+      },
+      "auth": {
+        "level": "INFO",
+        "separate_file": true
+      }
+    }
+  },
+  "security": {
+    "rate_limit_enabled": true,
+    "max_requests_per_minute": 60,
+    "session_timeout": 86400,
+    "password_min_length": 6,
+    "password_require_special": false,
+    "max_login_attempts": 5,
+    "lockout_duration": 900,
+    "ip_whitelist": [],
+    "ip_blacklist": [],
+    "csrf_protection": true,
+    "xss_protection": true
+  },
+  "features": {
+    "registration_enabled": true,
+    "email_verification_required": true,
+    "guest_access": false,
+    "file_upload": {
+      "enabled": true,
+      "max_size": 10485760,
+      "allowed_types": ["jpg", "jpeg", "png", "gif", "pdf", "doc", "docx"]
+    },
+    "chat": {
+      "max_message_length": 1000,
+      "history_retention_days": 365,
+      "typing_indicator": true,
+      "read_receipts": true
+    }
+  },
+  "monitoring": {
+    "metrics_enabled": true,
+    "health_check_interval": 60000,
+    "alert_thresholds": {
+      "cpu_usage": 80,
+      "memory_usage": 85,
+      "disk_usage": 90,
+      "connection_count": 900
+    },
+    "alert_email": "admin@qkchat.com"
+  }
+}
