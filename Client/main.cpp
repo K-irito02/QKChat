@@ -14,6 +14,9 @@
 
 int main(int argc, char *argv[])
 {
+    // 设置Qt Quick Controls样式环境变量（在QGuiApplication创建之前）
+    qputenv("QT_QUICK_CONTROLS_STYLE", "Basic");
+
     QGuiApplication app(argc, argv);
 
     // 设置应用程序信息
@@ -60,6 +63,11 @@ int main(int argc, char *argv[])
 
     // 创建QML引擎
     QQmlApplicationEngine engine;
+    
+    // 添加QML导入路径
+    engine.addImportPath("qrc:/");
+    engine.addImportPath(QCoreApplication::applicationDirPath());
+    engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
 
     // 获取管理器实例（确保初始化顺序）
     AuthManager* authManager = nullptr;

@@ -1,60 +1,67 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import Qt5Compat.GraphicalEffects
 
 /**
- * @brief 加载对话框组件
- * 
- * 显示加载状态的模态对话框，包含加载动画和状态文本。
- * 用于在执行网络请求或其他耗时操作时提供用户反馈。
+ * @brief 自定义加载对话框组件
+ *
+ * 提供现代化的加载指示器设计，支持自定义文本、
+ * 主题切换和动画效果。
  */
 Dialog {
     id: loadingDialog
-    
-    // 公共属性
+
+    // 自定义属性
+    property var themeManager
     property string loadingText: "加载中..."
-    property bool showCancelButton: false
-    
+    property bool showProgress: false
+    property real progress: 0.0
+
     // 对话框属性
     modal: true
-    closePolicy: showCancelButton ? Popup.CloseOnEscape : Popup.NoAutoClose
     anchors.centerIn: parent
-    
+    width: 200
+    height: 150
+    closePolicy: Popup.NoAutoClose
+
     // 背景
     background: Rectangle {
-        color: themeManager.currentTheme.surfaceColor
-        radius: 12
-        border.color: themeManager.currentTheme.borderColor
+        color: themeManager ? themeManager.currentTheme.cardColor : "#FFFFFF"
+        radius: 16
+        border.color: themeManager ? themeManager.currentTheme.borderColor : "#E0E0E0"
         border.width: 1
-        
+        opacity: 0.95
+
         // 阴影效果
-        layer.enabled: true
-        layer.effect: DropShadow {
-            horizontalOffset: 0
-            verticalOffset: 4
-            radius: 12
-            samples: 25
-            color: themeManager.currentTheme.shadowColor
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: -4
+            color: "transparent"
+            border.color: themeManager ? themeManager.currentTheme.shadowColor : "#00000020"
+            border.width: 1
+            radius: parent.radius + 4
+            z: -1
         }
     }
-    
-    // 内容
+
+    // 内容区域
     contentItem: ColumnLayout {
-        spacing: 20
-        
-        // 加载动画
+        spacing: 16
+        anchors.centerIn: parent
+
+        // 加载指示器
         BusyIndicator {
             id: busyIndicator
             Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: 48
-            Layout.preferredHeight: 48
             running: loadingDialog.visible
-            
+            width: 48
+            height: 48
+
+            // 自定义加载指示器样式
             contentItem: Item {
                 implicitWidth: 48
                 implicitHeight: 48
-                
+
                 Item {
                     id: item
                     x: parent.width / 2 - 24
@@ -62,13 +69,11 @@ Dialog {
                     width: 48
                     height: 48
                     opacity: busyIndicator.running ? 1 : 0
-                    
+
                     Behavior on opacity {
-                        OpacityAnimator {
-                            duration: 250
-                        }
+                        OpacityAnimator { duration: 250 }
                     }
-                    
+
                     RotationAnimator {
                         target: item
                         running: busyIndicator.visible && busyIndicator.running
@@ -77,26 +82,26 @@ Dialog {
                         loops: Animation.Infinite
                         duration: 1250
                     }
-                    
+
                     Repeater {
                         id: repeater
                         model: 6
-                        
+
                         Rectangle {
                             x: item.width / 2 - width / 2
                             y: item.height / 2 - height / 2
-                            implicitWidth: 8
-                            implicitHeight: 8
-                            radius: 4
-                            color: themeManager.currentTheme.primaryColor
+                            implicitWidth: 6
+                            implicitHeight: 6
+                            radius: 3
+                            color: themeManager ? themeManager.currentTheme.primaryColor : "#007AFF"
                             transform: [
                                 Translate {
-                                    y: -Math.min(item.width, item.height) * 0.5 + 8
+                                    y: -Math.min(item.width, item.height) * 0.5 + 6
                                 },
                                 Rotation {
                                     angle: index / repeater.count * 360
-                                    origin.x: 4
-                                    origin.y: 4
+                                    origin.x: 3
+                                    origin.y: 3
                                 }
                             ]
                             opacity: 1.0 - index / repeater.count
@@ -105,67 +110,108 @@ Dialog {
                 }
             }
         }
-        
+
+        // 进度条（可选）
+        ProgressBar {
+            visible: showProgress
+            Layout.fillWidth: true
+            Layout.preferredHeight: 4
+            value: progress
+
+            background: Rectangle {
+                implicitWidth: 200
+                implicitHeight: 4
+                color: themeManager ? themeManager.currentTheme.dividerColor : "#F0F0F0"
+                radius: 2
+            }
+
+            contentItem: Item {
+                implicitWidth: 200
+                implicitHeight: 4
+
+                Rectangle {
+                    width: parent.width * progress
+                    height: parent.height
+                    radius: 2
+                    color: themeManager ? themeManager.currentTheme.primaryColor : "#007AFF"
+
+                    Behavior on width {
+                        NumberAnimation { duration: 250; easing.type: Easing.OutCubic }
+                    }
+                }
+            }
+        }
+
         // 加载文本
         Text {
             Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: 200
             text: loadingText
-            color: themeManager.currentTheme.textPrimaryColor
-            font.pixelSize: 16
+            font.pixelSize: 14
+            font.family: "Microsoft YaHei UI"
+            color: themeManager ? themeManager.currentTheme.textPrimaryColor : "#000000"
             horizontalAlignment: Text.AlignHCenter
-            wrapMode: Text.WordWrap
         }
-        
-        // 取消按钮（可选）
-        Button {
-            Layout.alignment: Qt.AlignHCenter
-            Layout.preferredWidth: 100
-            Layout.preferredHeight: 36
-            visible: showCancelButton
-            text: "取消"
-            
-            background: Rectangle {
-                color: parent.pressed ? themeManager.currentTheme.borderColor : "transparent"
-                border.color: themeManager.currentTheme.borderColor
-                border.width: 1
-                radius: 6
+    }
+
+    // 打开动画
+    enter: Transition {
+        ParallelAnimation {
+            NumberAnimation {
+                property: "opacity"
+                from: 0.0
+                to: 1.0
+                duration: 200
+                easing.type: Easing.OutCubic
             }
-            
-            contentItem: Text {
-                text: parent.text
-                color: themeManager.currentTheme.textSecondaryColor
-                font.pixelSize: 14
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-            }
-            
-            onClicked: {
-                loadingDialog.reject()
+            NumberAnimation {
+                property: "scale"
+                from: 0.8
+                to: 1.0
+                duration: 200
+                easing.type: Easing.OutBack
             }
         }
     }
-    
+
+    // 关闭动画
+    exit: Transition {
+        ParallelAnimation {
+            NumberAnimation {
+                property: "opacity"
+                from: 1.0
+                to: 0.0
+                duration: 150
+                easing.type: Easing.OutCubic
+            }
+            NumberAnimation {
+                property: "scale"
+                from: 1.0
+                to: 0.9
+                duration: 150
+                easing.type: Easing.OutCubic
+            }
+        }
+    }
+
     // 公共方法
-    function show(text, showCancel) {
+    function show(text) {
         if (text !== undefined) {
             loadingText = text
         }
-        if (showCancel !== undefined) {
-            showCancelButton = showCancel
-        }
         open()
     }
-    
+
     function hide() {
         close()
     }
-    
-    // 信号
-    signal cancelled()
-    
-    // 处理取消
-    onRejected: {
-        cancelled()
+
+    function setProgress(value) {
+        showProgress = true
+        progress = Math.max(0, Math.min(1, value))
+    }
+
+    function hideProgress() {
+        showProgress = false
+        progress = 0
     }
 }

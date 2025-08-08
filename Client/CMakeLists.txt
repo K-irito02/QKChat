@@ -44,8 +44,12 @@ qt_add_qml_module(appClient
         qml/RegisterPage.qml
         qml/pages/MainPage.qml
         qml/components/ThemeManager.qml
+        qml/components/CustomTextField.qml
+        qml/components/CustomButton.qml
         qml/components/LoadingDialog.qml
         qml/components/MessageDialog.qml
+        qml/components/SettingsManager.qml
+        qml/components/PageTransition.qml
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.

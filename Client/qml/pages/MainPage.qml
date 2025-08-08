@@ -13,6 +13,8 @@ Rectangle {
     
     // 公共属性
     property var themeManager
+    property var loadingDialog
+    property var messageDialog
     
     // 信号
     signal logout()
@@ -55,6 +57,11 @@ Rectangle {
                     background: Rectangle {
                         color: parent.pressed ? themeManager.currentTheme.borderColor : "transparent"
                         radius: 20
+                        
+                        // 悬停效果
+                        Behavior on color {
+                            ColorAnimation { duration: 150 }
+                        }
                     }
                     
                     contentItem: Text {
@@ -77,6 +84,11 @@ Rectangle {
                     background: Rectangle {
                         color: parent.pressed ? themeManager.currentTheme.errorColor : "transparent"
                         radius: 20
+                        
+                        // 悬停效果
+                        Behavior on color {
+                            ColorAnimation { duration: 150 }
+                        }
                     }
                     
                     contentItem: Text {
@@ -145,10 +157,21 @@ Rectangle {
                         font.pixelSize: 14
                     }
                     
-                    Text {
-                        text: "在线"
-                        color: themeManager.currentTheme.successColor
-                        font.pixelSize: 12
+                    RowLayout {
+                        spacing: 8
+                        
+                        Rectangle {
+                            Layout.preferredWidth: 8
+                            Layout.preferredHeight: 8
+                            radius: 4
+                            color: themeManager.currentTheme.successColor
+                        }
+                        
+                        Text {
+                            text: "在线"
+                            color: themeManager.currentTheme.successColor
+                            font.pixelSize: 12
+                        }
                     }
                 }
             }

@@ -1,0 +1,9 @@
+module Components
+
+CustomButton 1.0 CustomButton.qml
+CustomTextField 1.0 CustomTextField.qml
+LoadingDialog 1.0 LoadingDialog.qml
+MessageDialog 1.0 MessageDialog.qml
+PageTransition 1.0 PageTransition.qml
+SettingsManager 1.0 SettingsManager.qml
+ThemeManager 1.0 ThemeManager.qml
