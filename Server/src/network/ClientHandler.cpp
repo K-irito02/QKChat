@@ -54,7 +54,7 @@ ClientHandler::ClientHandler(qintptr socketDescriptor, bool useTLS, QObject *par
         // 不启动SSL加密，直接使用TCP连接
     }
     
-    LOG_DEBUG(QString("Client handler created: %1").arg(_clientId));
+
 }
 
 ClientHandler::~ClientHandler()
@@ -63,7 +63,7 @@ ClientHandler::~ClientHandler()
         _socket->disconnectFromHost();
     }
     
-    LOG_DEBUG(QString("Client handler destroyed: %1").arg(_clientId));
+
 }
 
 QHostAddress ClientHandler::peerAddress() const
@@ -106,7 +106,7 @@ bool ClientHandler::sendMessage(const QJsonObject &message)
     
     updateLastActivity();
     
-    LOG_DEBUG(QString("Message sent to client %1: %2 bytes").arg(_clientId).arg(bytesWritten));
+
     return true;
 }
 
@@ -175,7 +175,7 @@ bool ClientHandler::setTlsCertificate(const QString &certFile, const QString &ke
     _socket->setLocalCertificate(certificate);
     _socket->setPrivateKey(privateKey);
     
-    LOG_DEBUG(QString("TLS certificate set for client %1").arg(_clientId));
+
     return true;
 }
 
@@ -288,9 +288,7 @@ void ClientHandler::onSslErrors(const QList<QSslError> &errors)
     
     // 记录SSL配置信息以便调试
     QSslConfiguration config = _socket->sslConfiguration();
-    LOG_DEBUG(QString("SSL Protocol for client %1: %2").arg(_clientId).arg(static_cast<int>(config.protocol())));
-    LOG_DEBUG(QString("SSL Ciphers for client %1: %2").arg(_clientId).arg(config.ciphers().size()));
-    LOG_DEBUG(QString("SSL Peer Verify Mode for client %1: %2").arg(_clientId).arg(static_cast<int>(config.peerVerifyMode())));
+
     
     // 在生产环境中，应该根据具体的SSL错误决定是否忽略
     // 这里为了测试方便，忽略所有SSL错误
@@ -336,7 +334,7 @@ void ClientHandler::processReceivedData(const QByteArray &data)
         QJsonObject message = doc.object();
         _messagesReceived++;
         
-        LOG_DEBUG(QString("Message received from client %1: %2 bytes").arg(_clientId).arg(messageData.size()));
+    
         
         processMessage(message);
     }
@@ -406,7 +404,7 @@ void ClientHandler::handleHeartbeat(const QJsonObject &message)
     updateLastActivity();
     sendHeartbeatResponse();
 
-    LOG_DEBUG(QString("Heartbeat from client %1").arg(_clientId));
+
 }
 
 void ClientHandler::sendAuthResponse(bool success, const QString &message, const QJsonObject &userData)
@@ -457,8 +455,7 @@ void ClientHandler::setState(ClientState state)
         ClientState oldState = _state;
         _state = state;
 
-        LOG_DEBUG(QString("Client %1 state changed: %2 -> %3")
-                  .arg(_clientId).arg(static_cast<int>(oldState)).arg(static_cast<int>(state)));
+
     }
 }
 

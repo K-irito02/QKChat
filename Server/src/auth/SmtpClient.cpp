@@ -184,7 +184,7 @@ void SmtpClient::onReadyRead()
     QByteArray data = _socket->readAll();
     QString response = QString::fromUtf8(data).trimmed();
     
-    LOG_DEBUG(QString("SMTP Response: %1").arg(response));
+
     
     _lastResponse = response;
     handleSmtpResponse(response);
@@ -335,7 +335,7 @@ void SmtpClient::sendCommand(const QString &command)
     _socket->write(cmd.toUtf8());
     _socket->flush();
 
-    LOG_DEBUG(QString("SMTP Command: %1").arg(command));
+
 }
 
 void SmtpClient::startTls()

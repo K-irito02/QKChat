@@ -13,7 +13,7 @@
 #include <openssl/x509v3.h>
 #include <openssl/x509.h>
 
-#include <QDebug>
+
 #include <QCryptographicHash>
 
 // 静态成员初始化

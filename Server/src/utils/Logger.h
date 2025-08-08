@@ -6,7 +6,7 @@
 #include <QTextStream>
 #include <QFile>
 #include <QMutex>
-#include <QDebug>
+
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QThread>
@@ -25,7 +25,6 @@ public:
      * @brief 日志级别枚举
      */
     enum LogLevel {
-        DEBUG = 0,
         INFO = 1,
         WARNING = 2,
         ERROR = 3,
@@ -45,13 +44,7 @@ public:
      */
     static void shutdown();
     
-    /**
-     * @brief 记录调试信息
-     * @param message 日志消息
-     * @param function 函数名
-     * @param line 行号
-     */
-    static void debug(const QString &message, const QString &function = "", int line = 0);
+
     
     /**
      * @brief 记录一般信息
@@ -275,7 +268,7 @@ private:
 };
 
 // 便捷宏定义
-#define LOG_DEBUG(msg) Logger::debug(msg, __FUNCTION__, __LINE__)
+
 #define LOG_INFO(msg) Logger::info(msg, __FUNCTION__, __LINE__)
 #define LOG_WARNING(msg) Logger::warning(msg, __FUNCTION__, __LINE__)
 #define LOG_ERROR(msg) Logger::error(msg, __FUNCTION__, __LINE__)

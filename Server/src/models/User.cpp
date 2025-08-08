@@ -1,7 +1,7 @@
 #include "User.h"
 #include "../utils/Crypto.h"
 #include <QJsonDocument>
-#include <QDebug>
+
 
 User::User(QObject *parent)
     : QObject(parent)

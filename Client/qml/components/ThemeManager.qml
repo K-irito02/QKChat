@@ -110,7 +110,7 @@ QtObject {
             var savedTheme = settings.theme || "light"
             isDarkTheme = (savedTheme === "dark")
         } catch (e) {
-            console.warn("Failed to load theme preference:", e)
+            // 主题加载失败，使用默认浅色主题
             isDarkTheme = false
         }
     }

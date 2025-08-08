@@ -524,7 +524,7 @@ void CertificateManager::checkCertificateStatus()
         }
 
         case Valid:
-            LOG_DEBUG("Current certificate is valid");
+        
             break;
 
         default:

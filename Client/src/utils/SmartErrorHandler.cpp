@@ -1,18 +1,16 @@
 #include "SmartErrorHandler.h"
 #include "../utils/Logger.h"
 #include <QDateTime>
-#include <QDebug>
+
 #include <QRandomGenerator>
 
 SmartErrorHandler::SmartErrorHandler(QObject *parent)
     : QObject(parent)
 {
-    LOG_DEBUG("SmartErrorHandler initialized");
 }
 
 SmartErrorHandler::~SmartErrorHandler()
 {
-    LOG_DEBUG("SmartErrorHandler destroyed");
 }
 
 bool SmartErrorHandler::handleError(const QString& errorType, const QString& errorMessage)
@@ -51,7 +49,6 @@ bool SmartErrorHandler::shouldRetry(const QString& errorType)
     QMutexLocker locker(&_mutex);
     
     if (isInCooldown(errorType)) {
-        LOG_DEBUG(QString("Error type %1 is in cooldown").arg(errorType));
         return false;
     }
     
@@ -59,12 +56,6 @@ bool SmartErrorHandler::shouldRetry(const QString& errorType)
     ErrorType type = classifyError(errorType); // 使用错误类型字符串作为消息来分类
     
     bool shouldRetry = shouldRetryErrorType(type) && errorCount <= getMaxRetries(type);
-    
-    LOG_DEBUG(QString("Should retry %1: %2 (count: %3, max: %4)")
-              .arg(errorType)
-              .arg(shouldRetry ? "true" : "false")
-              .arg(errorCount)
-              .arg(getMaxRetries(type)));
     
     return shouldRetry;
 }
@@ -85,8 +76,6 @@ void SmartErrorHandler::resetErrorCount(const QString& errorType)
     
     _errorCounts.remove(errorType);
     _lastErrorTime.remove(errorType);
-    
-    LOG_DEBUG(QString("Reset error count for: %1").arg(errorType));
 }
 
 void SmartErrorHandler::resetAllErrorCounts()
@@ -95,8 +84,6 @@ void SmartErrorHandler::resetAllErrorCounts()
     
     _errorCounts.clear();
     _lastErrorTime.clear();
-    
-    LOG_DEBUG("Reset all error counts");
 }
 
 int SmartErrorHandler::getErrorCount(const QString& errorType) const

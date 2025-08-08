@@ -107,7 +107,7 @@ void TcpServer::broadcastMessage(const QJsonObject &message)
     
     _totalMessages += _clients.size();
     
-    LOG_DEBUG(QString("Broadcast message to %1 clients").arg(_clients.size()));
+
 }
 
 bool TcpServer::sendMessageToUser(qint64 userId, const QJsonObject &message)
@@ -249,8 +249,7 @@ void TcpServer::incomingConnection(qintptr socketDescriptor)
     _clients[client->clientId()] = client;
     _totalConnections++;
     
-    LOG_DEBUG(QString("New client handler created: %1 (Total: %2)")
-              .arg(client->clientId()).arg(_clients.size()));
+
 }
 
 void TcpServer::onClientDisconnected()
@@ -264,7 +263,7 @@ void TcpServer::onClientDisconnected()
     QString clientId = client->clientId();
     qint64 userId = client->userId();
     
-    LOG_DEBUG(QString("Processing client disconnect: %1, userId: %2").arg(clientId).arg(userId));
+
     
     {
         QMutexLocker locker(&_clientsMutex);
@@ -272,14 +271,14 @@ void TcpServer::onClientDisconnected()
         // 从客户端列表中移除
         if (_clients.contains(clientId)) {
             _clients.remove(clientId);
-            LOG_DEBUG(QString("Removed client %1 from clients list").arg(clientId));
+        
         }
         
         // 从用户客户端映射中移除
         if (userId > 0 && _userClients.contains(userId)) {
             _userClients.remove(userId);
             emit userLoggedOut(userId);
-            LOG_DEBUG(QString("Removed user %1 from user clients mapping").arg(userId));
+        
         }
     }
     
@@ -327,7 +326,7 @@ void TcpServer::onClientError(const QString &error)
 
 void TcpServer::onHeartbeatTimer()
 {
-    LOG_DEBUG("Heartbeat timer triggered, checking client heartbeats");
+
     
     // 避免在定时器回调中进行耗时操作
     QTimer::singleShot(0, this, [this]() {
@@ -346,9 +345,7 @@ void TcpServer::cleanupClients()
     checkCount++;
     
     if (checkCount % 10 == 0) { // 每10次检查记录一次
-        LOG_DEBUG(QString("Resource monitoring - Active clients: %1, Memory usage: %2MB")
-                  .arg(_clients.size())
-                  .arg(QCoreApplication::applicationPid()));
+
     }
 }
 
@@ -377,8 +374,7 @@ void TcpServer::checkClientHeartbeats()
         }
     }
     
-    LOG_DEBUG(QString("Heartbeat check completed, %1 clients checked, %2 timeout clients found")
-              .arg(_clients.size()).arg(timeoutClients.size()));
+
 }
 
 QString TcpServer::generateClientId()

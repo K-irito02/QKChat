@@ -72,7 +72,7 @@
 ```json
 {
   "logging": {
-    "level": "INFO",                // 日志级别 (DEBUG, INFO, WARNING, ERROR)
+            "level": "INFO",                // 日志级别 (INFO, WARNING, ERROR)
     "console_output": true,         // 是否输出到控制台
     "json_format": false,           // 是否使用JSON格式
     "max_file_size": 104857600,     // 最大日志文件大小（字节）
@@ -80,7 +80,7 @@
     "directory": "",                // 日志目录（空表示使用默认目录）
     "modules": {
       "network": {
-        "level": "DEBUG",
+        "level": "INFO",
         "separate_file": true
       },
       "database": {

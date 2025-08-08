@@ -5,7 +5,6 @@
 #include <QMutexLocker>
 #include <QStringConverter>
 #include <iostream>
-#include <iostream>
 
 // 静态成员初始化
 bool Logger::s_initialized = false;
@@ -39,7 +38,6 @@ bool Logger::initialize(const QString &logDir, const QString &moduleName)
     s_logFile = new QFile(consoleLogPath);
 
     if (!s_logFile->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        qWarning() << "Failed to open console log file:" << consoleLogPath;
         delete s_logFile;
         s_logFile = nullptr;
         return false;
@@ -52,7 +50,6 @@ bool Logger::initialize(const QString &logDir, const QString &moduleName)
 
     // 记录初始化日志（避免死锁，直接输出到控制台）
     QString initMsg = QString("Logger initialized for module: %1, log file: %2").arg(s_moduleName).arg(consoleLogPath);
-    std::cout << initMsg.toStdString() << std::endl;
 
     return true;
 }
@@ -82,10 +79,7 @@ void Logger::shutdown()
     s_initialized = false;
 }
 
-void Logger::debug(const QString &message, const QString &function, int line)
-{
-    writeLog(DEBUG, message, function, line);
-}
+
 
 void Logger::info(const QString &message, const QString &function, int line)
 {
@@ -182,7 +176,7 @@ void Logger::clearLogFiles()
 QString Logger::levelToString(LogLevel level)
 {
     switch (level) {
-        case DEBUG: return "DEBUG";
+
         case INFO: return "INFO";
         case WARNING: return "WARNING";
         case ERROR: return "ERROR";
@@ -210,11 +204,7 @@ void Logger::writeLog(LogLevel level, const QString &message,
     
     // 输出到控制台
     if (s_consoleOutput) {
-        if (level >= ERROR) {
-            std::cerr << formattedMessage.toStdString() << std::endl;
-        } else {
-            std::cout << formattedMessage.toStdString() << std::endl;
-        }
+        // 控制台输出已禁用，避免调试信息干扰
     }
 }
 

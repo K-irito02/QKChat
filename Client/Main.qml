@@ -233,11 +233,8 @@ ApplicationWindow {
             // 尝试自动连接到服务器
             if (!authManager.isConnected) {
                 try {
-                    console.log("Attempting to connect to server...")
                     var result = authManager.connectToServer()
-                    console.log("Connect result:", result)
                 } catch (e) {
-                    console.error("Connection error:", e.toString())
                     messageDialog.showError("连接错误", "无法连接到服务器: " + e.toString())
                 }
             }
@@ -245,11 +242,9 @@ ApplicationWindow {
             // 延迟尝试自动登录
             Qt.callLater(function() {
                 try {
-                    console.log("Attempting auto login...")
                     var autoLoginResult = authManager.tryAutoLogin()
-                    console.log("Auto login result:", autoLoginResult)
                 } catch (e) {
-                    console.error("Auto login error:", e.toString())
+                    // 静默处理自动登录错误
                 }
             })
         })

@@ -285,7 +285,7 @@ bool EmailService::saveVerificationCode(const QString &email, const QString &cod
     int result = _databaseManager->executeUpdate(sql, params);
 
     if (result > 0) {
-        LOG_DEBUG(QString("Verification code saved for email: %1").arg(email));
+    
         return true;
     } else {
         LOG_ERROR(QString("Failed to save verification code: %1").arg(_databaseManager->lastError()));

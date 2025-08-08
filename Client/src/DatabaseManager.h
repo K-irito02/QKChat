@@ -16,7 +16,7 @@
 #include <QStandardPaths>
 #include <QCryptographicHash>
 #include <QSettings>
-#include <QDebug>
+
 
 /**
  * @brief 客户端SQLite数据库管理类

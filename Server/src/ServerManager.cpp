@@ -74,7 +74,6 @@ bool ServerManager::initialize()
     }
     
     if (!Logger::initialize(logDir, "Server")) {
-        qWarning() << "Failed to initialize logger";
         setServerState(Error);
         return false;
     }

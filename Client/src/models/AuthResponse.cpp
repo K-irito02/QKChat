@@ -1,6 +1,6 @@
 #include "AuthResponse.h"
 #include <QJsonDocument>
-#include <QDebug>
+
 
 AuthResponse::AuthResponse(QObject *parent)
     : QObject(parent)

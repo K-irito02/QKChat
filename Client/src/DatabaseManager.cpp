@@ -78,7 +78,6 @@ bool DatabaseManager::initialize()
         
         // 异步创建表，避免阻塞主线程
         QTimer::singleShot(100, this, [this]() {
-            LOG_DEBUG("Starting async table creation");
             if (!createTables()) {
                 LOG_ERROR("Failed to create database tables");
             } else {
@@ -750,7 +749,6 @@ QSqlQuery DatabaseManager::executeQuery(const QString &sql, const QVariantMap &p
 bool DatabaseManager::checkConnection()
 {
     if (!m_initialized || !m_database.isOpen()) {
-        qWarning() << "Database connection is not available";
         return false;
     }
     return true;
@@ -758,5 +756,5 @@ bool DatabaseManager::checkConnection()
 
 void DatabaseManager::logError(const QString &operation, const QString &error)
 {
-    qWarning() << "Database Error [" << operation << "]:" << error;
+    // 数据库错误日志已禁用，避免调试信息干扰
 }

@@ -1,7 +1,7 @@
 #include "NetworkQualityMonitor.h"
 #include "../utils/Logger.h"
 #include <QDateTime>
-#include <QDebug>
+
 #include <QtMath>
 
 NetworkQualityMonitor::NetworkQualityMonitor(QObject *parent)
@@ -10,12 +10,10 @@ NetworkQualityMonitor::NetworkQualityMonitor(QObject *parent)
     , _networkQuality(50) // 默认中等质量
     , _latestRtt(0)
 {
-    LOG_DEBUG("NetworkQualityMonitor initialized");
 }
 
 NetworkQualityMonitor::~NetworkQualityMonitor()
 {
-    LOG_DEBUG("NetworkQualityMonitor destroyed");
 }
 
 void NetworkQualityMonitor::recordHeartbeatSent(const QString& requestId)
@@ -24,8 +22,6 @@ void NetworkQualityMonitor::recordHeartbeatSent(const QString& requestId)
     
     qint64 timestamp = QDateTime::currentMSecsSinceEpoch();
     _heartbeatTimestamps[requestId] = timestamp;
-    
-    LOG_DEBUG(QString("Recorded heartbeat sent: %1 at %2").arg(requestId).arg(timestamp));
 }
 
 void NetworkQualityMonitor::recordHeartbeatReceived(const QString& requestId)
@@ -56,8 +52,6 @@ void NetworkQualityMonitor::recordHeartbeatReceived(const QString& requestId)
     // 更新统计数据
     updateAverageRtt();
     calculateNetworkQuality();
-    
-    LOG_DEBUG(QString("Recorded heartbeat received: %1, RTT: %2ms").arg(requestId).arg(rtt));
 }
 
 int NetworkQualityMonitor::getNetworkQuality() const
@@ -87,8 +81,6 @@ void NetworkQualityMonitor::reset()
     _averageRtt = 0;
     _networkQuality = 50; // 重置为中等质量
     _latestRtt = 0;
-    
-    LOG_DEBUG("NetworkQualityMonitor reset");
 }
 
 bool NetworkQualityMonitor::hasEnoughData() const
@@ -109,8 +101,6 @@ void NetworkQualityMonitor::updateAverageRtt()
         sum += rtt;
     }
     _averageRtt = sum / _rttHistory.size();
-    
-    LOG_DEBUG(QString("Updated average RTT: %1ms (from %2 samples)").arg(_averageRtt).arg(_rttHistory.size()));
 }
 
 void NetworkQualityMonitor::calculateNetworkQuality()

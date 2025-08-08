@@ -4,7 +4,7 @@
 
 #include <QApplication>
 #include <QMessageBox>
-#include <QDebug>
+
 #include <QNetworkAccessManager>
 #include <QDir>
 #include <QStandardPaths>
@@ -26,12 +26,9 @@ int main(int argc, char *argv[])
     QDir().mkpath(logDir); // 确保目录存在
 
     if (!Logger::initialize(logDir, "Server")) {
-        qWarning() << "Failed to initialize logger";
-        qWarning() << "Log directory:" << logDir;
         // 尝试使用相对路径
         QString relativeLogDir = "logs";
         if (!Logger::initialize(relativeLogDir, "Server")) {
-            qWarning() << "Failed to initialize logger with relative path";
             // 继续运行，但记录警告
         }
     }

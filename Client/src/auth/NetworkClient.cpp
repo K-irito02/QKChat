@@ -222,8 +222,6 @@ QString NetworkClient::sendVerificationCodeRequest(const QString &email)
 
 void NetworkClient::sendHeartbeat()
 {
-    LOG_DEBUG("=== sendHeartbeat() called ===");
-    
     try {
         // 简化连接检查
         if (_connectionState != Connected || !_socket || _socket->state() != QAbstractSocket::ConnectedState) {
@@ -231,23 +229,15 @@ void NetworkClient::sendHeartbeat()
             return;
         }
         
-        LOG_DEBUG("Preparing to send heartbeat");
-        
         QJsonObject request;
         request["action"] = "heartbeat";
         request["timestamp"] = QDateTime::currentSecsSinceEpoch();
         
-        LOG_DEBUG("Created heartbeat request JSON");
-        
         // 直接发送心跳，避免复杂的异步嵌套
         QString requestId = sendJsonRequest(request);
-        if (!requestId.isEmpty()) {
-            LOG_DEBUG(QString("Sent heartbeat request: %1").arg(requestId));
-        } else {
+        if (requestId.isEmpty()) {
             LOG_WARNING("Failed to send heartbeat request");
         }
-        
-        LOG_DEBUG("=== sendHeartbeat() completed ===");
         
     } catch (const std::exception& e) {
         LOG_ERROR(QString("Exception in sendHeartbeat(): %1").arg(e.what()));
@@ -337,14 +327,10 @@ void NetworkClient::onDisconnected()
     _connectionTimer->stop();
     
     LOG_INFO("Disconnected from server");
-    LOG_DEBUG(QString("Heartbeat timer state before stop: %1").arg(_heartbeatTimer->isActive() ? "Active" : "Inactive"));
     
     // 只有在非重连状态下才停止心跳定时器
     if (_connectionState != Reconnecting) {
         _heartbeatTimer->stop();
-        LOG_DEBUG("Heartbeat timer stopped due to disconnection");
-    } else {
-        LOG_DEBUG("Heartbeat timer kept active during reconnection");
     }
     
     // 如果不是主动断开，尝试重连
@@ -382,15 +368,9 @@ void NetworkClient::onSocketError(QAbstractSocket::SocketError error)
     QString errorString = _socket->errorString();
     LOG_ERROR(QString("Socket error: %1 (%2)").arg(errorString).arg(error));
     
-    // 记录心跳定时器状态
-    LOG_DEBUG(QString("Heartbeat timer state during socket error: %1").arg(_heartbeatTimer->isActive() ? "Active" : "Inactive"));
-    
     // 只有在非重连状态下才停止心跳定时器
     if (_connectionState != Reconnecting) {
         _heartbeatTimer->stop();
-        LOG_DEBUG("Heartbeat timer stopped due to socket error");
-    } else {
-        LOG_DEBUG("Heartbeat timer kept active during reconnection");
     }
     
     // 简化错误处理，避免复杂的错误处理逻辑
@@ -420,17 +400,7 @@ void NetworkClient::onSslErrors(const QList<QSslError> &errors)
     QString errorString = errorStrings.join("; ");
     LOG_WARNING(QString("SSL errors detected: %1").arg(errorString));
     
-    // 记录SSL配置信息以便调试
-    QSslConfiguration config = _socket->sslConfiguration();
-    LOG_DEBUG(QString("SSL Protocol: %1").arg(static_cast<int>(config.protocol())));
-    LOG_DEBUG(QString("SSL Ciphers: %1").arg(config.ciphers().size()));
-    LOG_DEBUG(QString("SSL Peer Verify Mode: %1").arg(static_cast<int>(config.peerVerifyMode())));
-    
-    // 记录SSL会话信息
-    LOG_DEBUG(QString("SSL Session Protocol: %1").arg(static_cast<int>(_socket->sessionProtocol())));
-    LOG_DEBUG(QString("SSL Session Cipher: %1").arg(_socket->sessionCipher().name()));
-    LOG_DEBUG(QString("SSL Session Cipher Authentication: %1").arg(_socket->sessionCipher().authenticationMethod()));
-    LOG_DEBUG(QString("SSL Session Cipher Encryption: %1").arg(_socket->sessionCipher().encryptionMethod()));
+    // SSL配置信息已移除，避免调试信息干扰
     
     // 在开发环境中忽略所有SSL错误
     _socket->ignoreSslErrors();
@@ -453,15 +423,12 @@ void NetworkClient::onConnectionTimeout()
 
 void NetworkClient::onHeartbeatTimeout()
 {
-    LOG_DEBUG("=== onHeartbeatTimeout() called ===");
-    
     try {
         // 检查连接状态
         if (_connectionState != Connected) {
             LOG_WARNING("Not connected, skipping heartbeat");
             if (_heartbeatTimer && _heartbeatTimer->isActive()) {
                 _heartbeatTimer->stop();
-                LOG_DEBUG("Stopped heartbeat timer due to disconnected state");
             }
             return;
         }
@@ -472,14 +439,10 @@ void NetworkClient::onHeartbeatTimeout()
             return;
         }
         
-        LOG_DEBUG("Calling sendHeartbeat()");
-        
         // 直接调用sendHeartbeat，避免异步嵌套
         if (_connectionState == Connected && _socket && _socket->state() == QAbstractSocket::ConnectedState) {
             sendHeartbeat();
         }
-        
-        LOG_DEBUG("=== onHeartbeatTimeout() completed ===");
         
     } catch (const std::exception& e) {
         LOG_ERROR(QString("Exception in onHeartbeatTimeout(): %1").arg(e.what()));
@@ -501,7 +464,6 @@ void NetworkClient::onHeartbeatTimeout()
 void NetworkClient::startReconnection()
 {
     if (_connectionState == Reconnecting) {
-        LOG_DEBUG("Already reconnecting, skipping");
         return;
     }
     
@@ -527,8 +489,6 @@ void NetworkClient::startReconnection()
     // 确保重连定时器是单次触发
     _reconnectTimer->setSingleShot(true);
     _reconnectTimer->start(delay);
-    
-    LOG_DEBUG(QString("Reconnect timer started, will attempt connection in %1ms").arg(delay));
 }
 
 void NetworkClient::onReconnectTimer()
@@ -537,13 +497,8 @@ void NetworkClient::onReconnectTimer()
              .arg(_currentReconnectAttempts)
              .arg(_maxReconnectAttempts));
     
-    // 检查心跳定时器状态
-    LOG_DEBUG(QString("Heartbeat timer state during reconnection: %1").arg(_heartbeatTimer->isActive() ? "Active" : "Inactive"));
-    
     // 尝试重新连接
     if (_socket->state() == QAbstractSocket::UnconnectedState) {
-        LOG_DEBUG(QString("Socket state is Unconnected, attempting connection to %1:%2").arg(_serverHost).arg(_serverPort));
-        
         if (_useTLS) {
             _socket->connectToHost(_serverHost, _serverPort);
         } else {
@@ -552,7 +507,6 @@ void NetworkClient::onReconnectTimer()
         
         // 启动连接超时
         _connectionTimer->start(_connectionTimeout);
-        LOG_DEBUG(QString("Connection timer started with timeout: %1ms").arg(_connectionTimeout));
     } else {
         LOG_WARNING(QString("Socket is not in Unconnected state: %1").arg(_socket->state()));
     }
@@ -580,17 +534,7 @@ void NetworkClient::handleReconnectionFailure()
 void NetworkClient::updateNetworkQuality()
 {
     // 暂时禁用网络质量监控
-    // if (_qualityMonitor) {
-    //     int quality = _qualityMonitor->getNetworkQuality();
-    //     int avgRtt = _qualityMonitor->getAverageRtt();
-    //     
-    //     LOG_INFO(QString("Network quality updated: %1/100, avg RTT: %2ms")
-    //              .arg(quality)
-    //              .arg(avgRtt));
-    //     
-    //     // 根据网络质量调整心跳间隔（可选功能）
-    //     // 这里可以添加自适应心跳间隔的逻辑
-    // }
+
 }
 
 void NetworkClient::setConnectionState(ConnectionState state)
@@ -735,13 +679,8 @@ void NetworkClient::processJsonResponse(const QJsonObject &response)
         }
     } else if (action == "heartbeat_response") {
         // 处理心跳响应
-        LOG_DEBUG("Received heartbeat response");
-        LOG_DEBUG(QString("Heartbeat response request ID: %1").arg(requestId));
-        
         // 验证心跳定时器状态
-        if (_heartbeatTimer->isActive()) {
-            LOG_DEBUG(QString("Heartbeat timer active after response, next heartbeat in %1ms").arg(_heartbeatTimer->remainingTime()));
-        } else {
+        if (!_heartbeatTimer->isActive()) {
             LOG_ERROR("Heartbeat timer stopped after receiving heartbeat response!");
         }
         
@@ -766,7 +705,6 @@ bool NetworkClient::isConnected() const
         }
         
         if (!_socket) {
-            LOG_DEBUG("Connection check - Socket is null");
             return false;
         }
         
@@ -784,11 +722,6 @@ bool NetworkClient::isConnected() const
         
         bool socketConnected = socketState == QAbstractSocket::ConnectedState;
         bool stateConnected = _connectionState == Connected;
-        
-        LOG_DEBUG(QString("Connection check - Socket state: %1, Connection state: %2, Connected: %3")
-                  .arg(static_cast<int>(socketState))
-                  .arg(static_cast<int>(_connectionState))
-                  .arg(socketConnected && stateConnected ? "Yes" : "No"));
         
         return socketConnected && stateConnected;
         

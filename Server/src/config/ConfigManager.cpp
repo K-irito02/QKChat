@@ -305,7 +305,7 @@ void ConfigManager::applyEnvironmentOverrides()
         QVariant envValue = getEnvironmentValue(it.key(), it.value());
         if (envValue.isValid()) {
             setValue(it.value(), envValue);
-            LOG_DEBUG(QString("Applied environment override: %1 = %2").arg(it.value()).arg(envValue.toString()));
+    
         }
     }
 }

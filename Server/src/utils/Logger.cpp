@@ -42,7 +42,6 @@ bool Logger::initialize(const QString &logDir, const QString &moduleName)
     s_logFile = new QFile(logFilePath);
     
     if (!s_logFile->open(QIODevice::WriteOnly | QIODevice::Append)) {
-        qWarning() << "Failed to open log file:" << logFilePath;
         delete s_logFile;
         s_logFile = nullptr;
         return false;
@@ -81,10 +80,7 @@ void Logger::shutdown()
     s_initialized = false;
 }
 
-void Logger::debug(const QString &message, const QString &function, int line)
-{
-    writeLog(DEBUG, message, function, line);
-}
+
 
 void Logger::info(const QString &message, const QString &function, int line)
 {
@@ -142,7 +138,7 @@ void Logger::logDatabase(const QString &operation, const QString &table,
     }
     
     if (success) {
-        debug(logMsg);
+    
     } else {
         error(logMsg);
     }
@@ -204,7 +200,7 @@ void Logger::clearLogFiles()
 QString Logger::levelToString(LogLevel level)
 {
     switch (level) {
-        case DEBUG: return "DEBUG";
+
         case INFO: return "INFO";
         case WARNING: return "WARNING";
         case ERROR: return "ERROR";
@@ -238,11 +234,7 @@ void Logger::writeLog(LogLevel level, const QString &message,
 
         // 输出到控制台
         if (s_consoleOutput) {
-            if (level >= ERROR) {
-                std::cerr << formattedMessage.toStdString() << std::endl;
-            } else {
-                std::cout << formattedMessage.toStdString() << std::endl;
-            }
+            // 控制台输出已禁用，避免调试信息干扰
         }
     }
 }
@@ -472,10 +464,6 @@ void Logger::writeJsonLog(LogLevel level, const QString &message,
 
     // 输出到控制台
     if (s_consoleOutput) {
-        if (level >= ERROR) {
-            std::cerr << jsonString.toStdString() << std::endl;
-        } else {
-            std::cout << jsonString.toStdString() << std::endl;
-        }
+        // 控制台输出已禁用，避免调试信息干扰
     }
 }

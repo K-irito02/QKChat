@@ -1,6 +1,6 @@
 #include "User.h"
 #include <QJsonDocument>
-#include <QDebug>
+
 
 User::User(QObject *parent)
     : QObject(parent)

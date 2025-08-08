@@ -1,5 +1,5 @@
 #include "Validator.h"
-#include <QDebug>
+
 
 // 正则表达式常量定义
 const QRegularExpression Validator::EMAIL_REGEX(

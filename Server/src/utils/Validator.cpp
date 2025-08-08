@@ -1,7 +1,7 @@
 #include "Validator.h"
 #include <QJsonDocument>
 #include <QJsonParseError>
-#include <QDebug>
+
 
 // 正则表达式常量定义
 const QRegularExpression Validator::EMAIL_REGEX(
@@ -457,7 +457,7 @@ void Validator::logSecurityEvent(const QString &eventType, const QString &severi
 
     // 使用Logger记录安全事件
     if (severity == "HIGH" || severity == "CRITICAL") {
-        qWarning() << logMessage;
+        // 安全事件日志已禁用，避免调试信息干扰
     } else {
         qInfo() << logMessage;
     }

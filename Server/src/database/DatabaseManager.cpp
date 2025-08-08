@@ -3,7 +3,7 @@
 #include <QSqlDriver>
 #include <QThread>
 #include <QCoreApplication>
-#include <QDebug>
+
 
 // 静态成员初始化
 DatabaseManager* DatabaseManager::s_instance = nullptr;

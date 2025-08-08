@@ -3,7 +3,7 @@
 #include <QMutexLocker>
 #include <QEventLoop>
 #include <QTimer>
-#include <QDebug>
+
 
 // 静态成员初始化
 RedisClient* RedisClient::s_instance = nullptr;

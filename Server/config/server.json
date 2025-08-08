@@ -47,7 +47,7 @@
     "directory": "",
     "modules": {
       "network": {
-        "level": "DEBUG",
+        "level": "INFO",
         "separate_file": true
       },
       "database": {
