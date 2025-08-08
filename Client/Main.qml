@@ -29,7 +29,6 @@ ApplicationWindow {
         }
 
         function toggleTheme() {
-            console.log("Theme toggle requested")
         }
 
         function getOppositeThemeName() {
@@ -44,7 +43,6 @@ ApplicationWindow {
         anchors.centerIn: parent
 
         function show(text) {
-            console.log("Loading:", text)
             open()
         }
 
@@ -67,19 +65,16 @@ ApplicationWindow {
         property string messageText: ""
 
         function showError(title, message) {
-            console.log("Error:", title, message)
             messageText = title + ": " + message
             open()
         }
 
         function showSuccess(title, message) {
-            console.log("Success:", title, message)
             messageText = title + ": " + message
             open()
         }
 
         function showWarning(title, message) {
-            console.log("Warning:", title, message)
             messageText = title + ": " + message
             open()
         }
@@ -138,12 +133,9 @@ ApplicationWindow {
                     enabled: typeof authManager !== "undefined" && authManager !== null && authManager.isConnected
 
                     onClicked: {
-                        console.log("Login button clicked")
                         if (typeof authManager !== "undefined" && authManager !== null) {
-                            console.log("Calling authManager.login...")
                             authManager.login(usernameInput.text, passwordInput.text, false)
                         } else {
-                            console.error("authManager is not available!")
                             messageDialog.showError("错误", "认证管理器不可用")
                         }
                     }
@@ -155,6 +147,13 @@ ApplicationWindow {
                           "认证管理器不可用"
                     color: typeof authManager !== "undefined" && authManager !== null && authManager.isConnected ?
                            "green" : "red"
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
+
+                Text {
+                    text: "点击登录按钮测试连接"
+                    color: "gray"
+                    font.pixelSize: 12
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
             }
@@ -195,29 +194,24 @@ ApplicationWindow {
         target: typeof authManager !== "undefined" ? authManager : null
 
         function onConnectionStateChanged(connected) {
-            console.log("Connection state changed:", connected)
             if (!connected) {
                 messageDialog.showError("连接错误", "与服务器的连接已断开")
             }
         }
 
         function onNetworkError(error) {
-            console.log("Network error:", error)
             messageDialog.showError("网络错误", error)
         }
 
         function onLoginSucceeded(user) {
-            console.log("Login succeeded for user:", user ? user.username : "unknown")
             stackView.push(mainPageComponent)
         }
 
         function onLoginFailed(error) {
-            console.log("Login failed:", error)
             messageDialog.showError("登录失败", error)
         }
 
         function onLoadingStateChanged(loading) {
-            console.log("Loading state changed:", loading)
             if (loading) {
                 loadingDialog.show("正在处理请求...")
             } else {
@@ -228,42 +222,37 @@ ApplicationWindow {
 
     // 应用程序启动时的初始化
     Component.onCompleted: {
-        console.log("=== Main.qml Component.onCompleted ===")
-        console.log("authManager:", typeof authManager, authManager)
-        console.log("sessionManager:", typeof sessionManager, sessionManager)
-        console.log("themeManager:", typeof themeManager, themeManager)
-
         // 检查authManager是否可用
         if (typeof authManager === "undefined" || authManager === null) {
-            console.error("ERROR: authManager is not available!")
             messageDialog.showError("初始化错误", "认证管理器不可用")
             return
         }
 
-        console.log("authManager.isConnected:", authManager.isConnected)
-
-        // 尝试自动连接到服务器
-        if (!authManager.isConnected) {
-            console.log("Attempting to connect to server...")
-            try {
-                authManager.connectToServer()
-            } catch (e) {
-                console.error("Error connecting to server:", e)
-                messageDialog.showError("连接错误", "无法连接到服务器: " + e.toString())
+        // 延迟初始化，避免阻塞UI线程
+        Qt.callLater(function() {
+            // 尝试自动连接到服务器
+            if (!authManager.isConnected) {
+                try {
+                    console.log("Attempting to connect to server...")
+                    var result = authManager.connectToServer()
+                    console.log("Connect result:", result)
+                } catch (e) {
+                    console.error("Connection error:", e.toString())
+                    messageDialog.showError("连接错误", "无法连接到服务器: " + e.toString())
+                }
             }
-        } else {
-            console.log("Already connected to server")
-        }
 
-        // 尝试自动登录
-        console.log("Attempting auto login...")
-        try {
-            authManager.tryAutoLogin()
-        } catch (e) {
-            console.error("Error during auto login:", e)
-        }
-
-        console.log("=== Main.qml initialization complete ===")
+            // 延迟尝试自动登录
+            Qt.callLater(function() {
+                try {
+                    console.log("Attempting auto login...")
+                    var autoLoginResult = authManager.tryAutoLogin()
+                    console.log("Auto login result:", autoLoginResult)
+                } catch (e) {
+                    console.error("Auto login error:", e.toString())
+                }
+            })
+        })
     }
 
     // 应用程序关闭时的清理

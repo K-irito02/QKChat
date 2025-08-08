@@ -15,6 +15,8 @@
 #include <QAbstractSocket>
 #include <QMap>
 #include <QMutex>
+#include "../utils/NetworkQualityMonitor.h"
+#include "../utils/SmartErrorHandler.h"
 
 /**
  * @brief 网络客户端类
@@ -98,7 +100,7 @@ public:
      * @brief 检查是否已连接
      * @return 是否已连接
      */
-    bool isConnected() const { return _connectionState == Connected; }
+    bool isConnected() const;
     
     /**
      * @brief 设置连接超时时间
@@ -160,6 +162,7 @@ private slots:
     void onSslErrors(const QList<QSslError> &errors);
     void onConnectionTimeout();
     void onHeartbeatTimeout();
+    void onReconnectTimer();
 
 private:
     /**
@@ -197,6 +200,26 @@ private:
      * @brief 配置SSL
      */
     void configureSsl();
+    
+    /**
+     * @brief 启动重连机制
+     */
+    void startReconnection();
+    
+    /**
+     * @brief 处理重连成功
+     */
+    void handleReconnectionSuccess();
+    
+    /**
+     * @brief 处理重连失败
+     */
+    void handleReconnectionFailure();
+    
+    /**
+     * @brief 更新网络质量
+     */
+    void updateNetworkQuality();
 
 private:
     QSslSocket* _socket;
@@ -207,14 +230,23 @@ private:
     
     QTimer* _connectionTimer;
     QTimer* _heartbeatTimer;
+    QTimer* _reconnectTimer;
     int _connectionTimeout;
     int _heartbeatInterval;
+    int _reconnectInterval;
+    int _maxReconnectAttempts;
+    int _currentReconnectAttempts;
+    bool _autoReconnect;
+    
+    NetworkQualityMonitor* _qualityMonitor;
+    SmartErrorHandler* _errorHandler;
     
     QByteArray _receiveBuffer;
     QMap<QString, QString> _pendingRequests; // requestId -> requestType
     QMutex _dataMutex; // 添加互斥锁保护共享数据
     
     static int s_requestCounter;
+    static QMutex s_counterMutex; // 保护静态计数器的互斥锁
 };
 
 #endif // NETWORKCLIENT_H

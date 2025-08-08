@@ -29,6 +29,10 @@ qt_add_executable(appClient
     src/utils/Crypto.cpp
     src/utils/Logger.h
     src/utils/Logger.cpp
+    src/utils/NetworkQualityMonitor.h
+    src/utils/NetworkQualityMonitor.cpp
+    src/utils/SmartErrorHandler.h
+    src/utils/SmartErrorHandler.cpp
 )
 
 qt_add_qml_module(appClient

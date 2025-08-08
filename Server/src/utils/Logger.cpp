@@ -187,7 +187,7 @@ void Logger::clearLogFiles()
         return;
     }
     
-    // 删除所有日志文件
+    // 删除所有日志文件，为新的运行做准备
     QStringList filters;
     filters << "*.log";
     QFileInfoList files = logDir.entryInfoList(filters, QDir::Files);
@@ -196,6 +196,9 @@ void Logger::clearLogFiles()
         QString filePath = fileInfo.absoluteFilePath();
         QFile::remove(filePath);
     }
+    
+    // 注意：这里不能调用LOG_INFO，因为initialize()已经持有锁
+    // 会导致嵌套锁死锁问题
 }
 
 QString Logger::levelToString(LogLevel level)

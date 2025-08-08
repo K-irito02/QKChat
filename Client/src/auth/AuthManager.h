@@ -63,12 +63,12 @@ public:
      * @brief 连接到服务器
      * @return 连接是否成功启动
      */
-    bool connectToServer();
+    Q_INVOKABLE bool connectToServer();
     
     /**
      * @brief 断开与服务器的连接
      */
-    void disconnectFromServer();
+    Q_INVOKABLE void disconnectFromServer();
     
     /**
      * @brief 用户登录
@@ -77,7 +77,7 @@ public:
      * @param rememberMe 是否记住登录
      * @return 登录请求是否成功发送
      */
-    bool login(const QString &username, const QString &password, bool rememberMe = false);
+    Q_INVOKABLE bool login(const QString &username, const QString &password, bool rememberMe = false);
     
     /**
      * @brief 用户注册
@@ -87,7 +87,7 @@ public:
      * @param verificationCode 验证码
      * @return 注册请求是否成功发送
      */
-    bool registerUser(const QString &username, const QString &email, 
+    Q_INVOKABLE bool registerUser(const QString &username, const QString &email, 
                      const QString &password, const QString &verificationCode);
     
     /**
@@ -95,18 +95,18 @@ public:
      * @param email 邮箱地址
      * @return 请求是否成功发送
      */
-    bool sendVerificationCode(const QString &email);
+    Q_INVOKABLE bool sendVerificationCode(const QString &email);
     
     /**
      * @brief 用户登出
      */
-    void logout();
+    Q_INVOKABLE void logout();
     
     /**
      * @brief 尝试自动登录
      * @return 是否有保存的登录信息
      */
-    bool tryAutoLogin();
+    Q_INVOKABLE bool tryAutoLogin();
     
     /**
      * @brief 检查是否已连接到服务器

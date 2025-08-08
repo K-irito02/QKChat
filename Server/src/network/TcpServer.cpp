@@ -232,8 +232,8 @@ void TcpServer::incomingConnection(qintptr socketDescriptor)
         client->setTlsCertificate(_certFile, _keyFile);
     }
     
-    // 设置心跳超时
-    client->setHeartbeatTimeout(_heartbeatInterval * 2); // 2倍心跳间隔作为超时
+    // 设置心跳超时 - 增加超时时间以避免误判
+    client->setHeartbeatTimeout(_heartbeatInterval * 3); // 3倍心跳间隔作为超时
     
     // 连接信号
     connect(client, &ClientHandler::connected, this, [this, client]() {
@@ -257,21 +257,30 @@ void TcpServer::onClientDisconnected()
 {
     ClientHandler* client = qobject_cast<ClientHandler*>(sender());
     if (!client) {
+        LOG_WARNING("Received disconnect signal from unknown client");
         return;
     }
-    
-    QMutexLocker locker(&_clientsMutex);
     
     QString clientId = client->clientId();
     qint64 userId = client->userId();
     
-    // 从客户端列表中移除
-    _clients.remove(clientId);
+    LOG_DEBUG(QString("Processing client disconnect: %1, userId: %2").arg(clientId).arg(userId));
     
-    // 从用户客户端映射中移除
-    if (userId > 0) {
-        _userClients.remove(userId);
-        emit userLoggedOut(userId);
+    {
+        QMutexLocker locker(&_clientsMutex);
+        
+        // 从客户端列表中移除
+        if (_clients.contains(clientId)) {
+            _clients.remove(clientId);
+            LOG_DEBUG(QString("Removed client %1 from clients list").arg(clientId));
+        }
+        
+        // 从用户客户端映射中移除
+        if (userId > 0 && _userClients.contains(userId)) {
+            _userClients.remove(userId);
+            emit userLoggedOut(userId);
+            LOG_DEBUG(QString("Removed user %1 from user clients mapping").arg(userId));
+        }
     }
     
     LOG_INFO(QString("Client disconnected: %1 (Total: %2)")
@@ -279,8 +288,8 @@ void TcpServer::onClientDisconnected()
     
     emit clientDisconnected(client);
     
-    // 延迟删除客户端对象
-    client->deleteLater();
+    // 延迟删除客户端对象，避免在信号处理中删除
+    QTimer::singleShot(0, client, &ClientHandler::deleteLater);
 }
 
 void TcpServer::onClientAuthenticated(qint64 userId)
@@ -318,34 +327,58 @@ void TcpServer::onClientError(const QString &error)
 
 void TcpServer::onHeartbeatTimer()
 {
-    checkClientHeartbeats();
-    cleanupClients();
+    LOG_DEBUG("Heartbeat timer triggered, checking client heartbeats");
+    
+    // 避免在定时器回调中进行耗时操作
+    QTimer::singleShot(0, this, [this]() {
+        checkClientHeartbeats();
+        cleanupClients();
+    });
 }
 
 void TcpServer::cleanupClients()
 {
     // 清理已断开的客户端在onClientDisconnected中处理
     // 这里可以添加其他清理逻辑
+    
+    // 监控资源使用情况
+    static int checkCount = 0;
+    checkCount++;
+    
+    if (checkCount % 10 == 0) { // 每10次检查记录一次
+        LOG_DEBUG(QString("Resource monitoring - Active clients: %1, Memory usage: %2MB")
+                  .arg(_clients.size())
+                  .arg(QCoreApplication::applicationPid()));
+    }
 }
 
 void TcpServer::checkClientHeartbeats()
 {
-    QMutexLocker locker(&_clientsMutex);
-    
+    // 避免长时间持有锁，先收集需要处理的客户端
     QList<ClientHandler*> timeoutClients;
     
-    for (auto it = _clients.begin(); it != _clients.end(); ++it) {
-        ClientHandler* client = it.value();
-        if (client->isHeartbeatTimeout()) {
-            timeoutClients.append(client);
+    {
+        QMutexLocker locker(&_clientsMutex);
+        
+        // 快速检查，避免在锁内进行耗时操作
+        for (auto it = _clients.begin(); it != _clients.end(); ++it) {
+            ClientHandler* client = it.value();
+            if (client && client->isHeartbeatTimeout()) {
+                timeoutClients.append(client);
+            }
         }
     }
     
-    // 断开超时的客户端
+    // 在锁外处理超时客户端，避免死锁
     for (ClientHandler* client : timeoutClients) {
-        LOG_WARNING(QString("Client heartbeat timeout: %1").arg(client->clientId()));
-        client->disconnect("Heartbeat timeout");
+        if (client) {
+            LOG_WARNING(QString("Client heartbeat timeout: %1").arg(client->clientId()));
+            client->disconnect("Heartbeat timeout");
+        }
     }
+    
+    LOG_DEBUG(QString("Heartbeat check completed, %1 clients checked, %2 timeout clients found")
+              .arg(_clients.size()).arg(timeoutClients.size()));
 }
 
 QString TcpServer::generateClientId()

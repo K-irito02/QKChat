@@ -313,8 +313,8 @@ QSslConfiguration CertificateManager::getSslConfiguration() const
         config.setCaCertificates(_caCertificates);
     }
     
-    // 设置安全的SSL协议和密码套件
-    config.setProtocol(QSsl::TlsV1_2OrLater);
+    // 设置安全的SSL协议
+    config.setProtocol(QSsl::TlsV1_2);
     config.setPeerVerifyMode(QSslSocket::VerifyNone); // 服务器模式
     
     return config;

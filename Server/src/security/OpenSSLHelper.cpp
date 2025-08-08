@@ -259,13 +259,18 @@ QSslCertificate OpenSSLHelper::createSelfSignedCertificate(const QSslKey &privat
     
     // 添加扩展
     addCertificateExtension(cert, NID_basic_constraints, "critical,CA:FALSE");
-    addCertificateExtension(cert, NID_key_usage, "critical,digitalSignature,keyEncipherment");
+    addCertificateExtension(cert, NID_key_usage, "critical,digitalSignature,keyEncipherment,keyAgreement");
     addCertificateExtension(cert, NID_ext_key_usage, "serverAuth,clientAuth");
-    addCertificateExtension(cert, NID_subject_alt_name, QString("DNS:%1").arg(commonName).toUtf8().constData());
+    addCertificateExtension(cert, NID_subject_alt_name, QString("DNS:%1,IP:127.0.0.1").arg(commonName).toUtf8().constData());
     
-    // 签名证书
+    // 添加签名算法扩展以提高兼容性
+    // 注意：NID_signature_algorithms不是标准的X.509扩展，移除这个扩展
+    // 签名算法在SSL握手时协商，不需要在证书中指定
+    
+    // 签名证书 - 使用SHA256以提高安全性和兼容性
+    // 对于TLS 1.2，使用SHA256签名算法
     if (X509_sign(cert, pkey, EVP_sha256()) == 0) {
-        LOG_ERROR("Failed to sign certificate");
+        LOG_ERROR("Failed to sign certificate with SHA256");
         X509_free(cert);
         EVP_PKEY_free(pkey);
         return QSslCertificate();

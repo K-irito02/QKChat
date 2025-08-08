@@ -1,4 +1,5 @@
 #include "DatabaseManager.h"
+#include "utils/Logger.h"
 #include <QSqlDriver>
 #include <QSqlIndex>
 #include <QSqlField>
@@ -8,6 +9,10 @@
 #include <QRandomGenerator>
 #include <QCoreApplication>
 #include <QMutexLocker>
+#include <QStandardPaths>
+#include <QCryptographicHash>
+#include <QTimer>
+#include <QThread>
 
 
 // 静态成员初始化
@@ -23,11 +28,16 @@ const QString DatabaseManager::TABLE_SETTINGS = "settings";
 DatabaseManager::DatabaseManager(QObject *parent)
     : QObject(parent)
     , m_initialized(false)
+    , m_isConnected(false)
 {
-    // 设置数据库路径（使用相对路径）
-    QString dbDir = "data";
-    QDir().mkpath(dbDir);
-    m_databasePath = dbDir + "/client.db";
+    // 设置数据库路径
+    QString appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(appDataPath);
+    m_databasePath = appDataPath + "/qkchat.db";
+    
+    // 初始化数据库连接
+    m_database = QSqlDatabase::addDatabase("QSQLITE");
+    m_database.setDatabaseName(m_databasePath);
 }
 
 DatabaseManager::~DatabaseManager()
@@ -55,30 +65,32 @@ bool DatabaseManager::initialize()
         return true;
     }
     
-    // 创建SQLite数据库连接
-    m_database = QSqlDatabase::addDatabase("QSQLITE", "ClientDatabase");
-    m_database.setDatabaseName(m_databasePath);
+    // 检查是否在主线程中调用
+    if (QThread::currentThread() == QCoreApplication::instance()->thread()) {
+        LOG_WARNING("DatabaseManager::initialize() called from main thread, this may block UI");
+    }
     
-    if (!m_database.open()) {
-        logError("Database Open", m_database.lastError().text());
+    if (m_database.open()) {
+        m_isConnected = true;
+        m_initialized = true;
+        
+        LOG_INFO("Database connection opened successfully");
+        
+        // 异步创建表，避免阻塞主线程
+        QTimer::singleShot(100, this, [this]() {
+            LOG_DEBUG("Starting async table creation");
+            if (!createTables()) {
+                LOG_ERROR("Failed to create database tables");
+            } else {
+                LOG_INFO("Database tables created successfully");
+            }
+        });
+        
+        return true;
+    } else {
+        LOG_ERROR(QString("Failed to open database: %1").arg(m_database.lastError().text()));
         return false;
     }
-    
-    // 启用外键约束
-    QSqlQuery query(m_database);
-    if (!query.exec("PRAGMA foreign_keys = ON")) {
-        logError("Enable Foreign Keys", query.lastError().text());
-    }
-    
-    // 创建数据库表
-    if (!createTables()) {
-        logError("Create Tables", "Failed to create database tables");
-        return false;
-    }
-    
-    m_initialized = true;
-    qDebug() << "Database initialized successfully:" << m_databasePath;
-    return true;
 }
 
 void DatabaseManager::close()

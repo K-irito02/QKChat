@@ -245,6 +245,7 @@ private:
     QMutex m_mutex;
     QString m_databasePath;
     bool m_initialized;
+    bool m_isConnected; // 添加连接状态成员变量
     
     // 数据库表名常量
     static const QString TABLE_USERS;

@@ -4,6 +4,8 @@
 #include "../utils/Crypto.h"
 #include <QJsonDocument>
 #include <QMutexLocker>
+#include <QThread>
+#include <QCoreApplication>
 
 // 静态成员初始化
 AuthManager* AuthManager::s_instance = nullptr;
@@ -58,6 +60,10 @@ AuthManager* AuthManager::instance()
         QMutexLocker locker(&s_mutex);
         if (!s_instance) {
             s_instance = new AuthManager();
+            // 确保在主线程中创建
+            if (QThread::currentThread() != QCoreApplication::instance()->thread()) {
+                LOG_WARNING("AuthManager instance created in non-main thread");
+            }
         }
     }
     return s_instance;

@@ -195,12 +195,10 @@ Rectangle {
         target: authManager
 
         function onLoginSucceeded(user) {
-            console.log("Login succeeded for user:", user.username)
             loginSucceeded()
         }
 
         function onLoginFailed(error) {
-            console.log("Login failed:", error)
             errorText.text = error
             errorText.visible = true
         }
@@ -208,13 +206,6 @@ Rectangle {
 
     // 初始化
     Component.onCompleted: {
-        console.log("=== LoginPage Component.onCompleted ===")
-        console.log("themeManager:", themeManager)
-        console.log("loadingDialog:", loadingDialog)
-        console.log("messageDialog:", messageDialog)
-        console.log("authManager:", authManager)
-        console.log("sessionManager:", sessionManager)
-
         usernameInput.focus = true
 
         // 检查sessionManager是否可用
@@ -225,13 +216,8 @@ Rectangle {
                 if (loginInfo.first) {
                     usernameInput.text = loginInfo.first
                     rememberCheckBox.checked = true
-                    console.log("Loaded saved login info for:", loginInfo.first)
                 }
             }
-        } else {
-            console.error("ERROR: sessionManager is not available!")
         }
-
-        console.log("=== LoginPage initialization complete ===")
     }
 }

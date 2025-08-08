@@ -40,12 +40,12 @@ public:
      * @param rememberMe 是否记住登录
      * @return 创建是否成功
      */
-    bool createSession(User* user, const QString &sessionToken, bool rememberMe = false);
+    Q_INVOKABLE bool createSession(User* user, const QString &sessionToken, bool rememberMe = false);
     
     /**
      * @brief 销毁当前会话
      */
-    void destroySession();
+    Q_INVOKABLE void destroySession();
     
     /**
      * @brief 检查是否已登录
@@ -75,55 +75,55 @@ public:
      * @brief 检查会话是否有效
      * @return 会话是否有效
      */
-    bool isSessionValid() const;
+    Q_INVOKABLE bool isSessionValid() const;
     
     /**
      * @brief 刷新会话令牌
      * @param newToken 新的会话令牌
      */
-    void refreshSessionToken(const QString &newToken);
+    Q_INVOKABLE void refreshSessionToken(const QString &newToken);
     
     /**
      * @brief 更新用户信息
      * @param user 更新的用户信息
      */
-    void updateUserInfo(User* user);
+    Q_INVOKABLE void updateUserInfo(User* user);
     
     /**
      * @brief 设置会话超时时间
      * @param timeout 超时时间（秒）
      */
-    void setSessionTimeout(int timeout);
+    Q_INVOKABLE void setSessionTimeout(int timeout);
     
     /**
      * @brief 检查是否启用了记住登录
      * @return 是否记住登录
      */
-    bool isRememberMeEnabled() const { return _rememberMe; }
+    Q_INVOKABLE bool isRememberMeEnabled() const { return _rememberMe; }
     
     /**
      * @brief 获取保存的登录信息
-     * @return 登录信息（用户名和密码哈希）
+     * @return 用户名和密码哈希的键值对
      */
-    QPair<QString, QString> getSavedLoginInfo() const;
+    Q_INVOKABLE QPair<QString, QString> getSavedLoginInfo() const;
     
     /**
      * @brief 保存登录信息
      * @param username 用户名
      * @param passwordHash 密码哈希
      */
-    void saveLoginInfo(const QString &username, const QString &passwordHash);
+    Q_INVOKABLE void saveLoginInfo(const QString &username, const QString &passwordHash);
     
     /**
      * @brief 清除保存的登录信息
      */
-    void clearSavedLoginInfo();
+    Q_INVOKABLE void clearSavedLoginInfo();
     
     /**
      * @brief 尝试自动登录
      * @return 是否有保存的登录信息
      */
-    bool tryAutoLogin();
+    Q_INVOKABLE bool tryAutoLogin();
 
 signals:
     /**

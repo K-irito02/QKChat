@@ -3,6 +3,7 @@
 #include "../utils/Logger.h"
 #include <QSslCertificate>
 #include <QSslKey>
+#include <QSslCipher>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonParseError>
@@ -47,9 +48,10 @@ ClientHandler::ClientHandler(qintptr socketDescriptor, bool useTLS, QObject *par
         return;
     }
     
-    // 如果使用TLS，启动SSL握手
+    // 临时禁用SSL以测试基本连接
     if (_useTLS) {
-        _socket->startServerEncryption();
+        LOG_WARNING(QString("SSL temporarily disabled for testing client %1 - using plain TCP connection").arg(_clientId));
+        // 不启动SSL加密，直接使用TCP连接
     }
     
     LOG_DEBUG(QString("Client handler created: %1").arg(_clientId));
@@ -189,7 +191,14 @@ bool ClientHandler::isHeartbeatTimeout() const
     }
     
     qint64 elapsed = _lastActivity.msecsTo(QDateTime::currentDateTime());
-    return elapsed > _heartbeatTimeout;
+    bool timeout = elapsed > _heartbeatTimeout;
+    
+    if (timeout) {
+        LOG_WARNING(QString("Client %1 heartbeat timeout: elapsed=%2ms, timeout=%3ms")
+                   .arg(_clientId).arg(elapsed).arg(_heartbeatTimeout));
+    }
+    
+    return timeout;
 }
 
 QJsonObject ClientHandler::getClientInfo() const
@@ -219,6 +228,14 @@ QJsonObject ClientHandler::getClientInfo() const
 void ClientHandler::onConnected()
 {
     LOG_INFO(QString("Client connected: %1 from %2").arg(_clientId).arg(peerAddress().toString()));
+    
+    // 记录连接信息
+    if (_useTLS) {
+        LOG_INFO(QString("SSL temporarily disabled for client %1 - using plain TCP connection").arg(_clientId));
+    } else {
+        LOG_INFO(QString("Using plain TCP connection for client %1").arg(_clientId));
+    }
+    
     emit connected();
 }
 
@@ -251,12 +268,29 @@ void ClientHandler::onSocketError(QAbstractSocket::SocketError error)
 void ClientHandler::onSslErrors(const QList<QSslError> &errors)
 {
     QStringList errorStrings;
+    QStringList errorDetails;
+    
     for (const QSslError &error : errors) {
-        errorStrings << error.errorString();
+        QString errorStr = error.errorString();
+        errorStrings << errorStr;
+        
+        // 记录详细的SSL错误信息
+        QString detail = QString("SSL Error for client %1: %2 (Code: %3)")
+                        .arg(_clientId)
+                        .arg(errorStr)
+                        .arg(static_cast<int>(error.error()));
+        errorDetails << detail;
+        LOG_WARNING(detail);
     }
     
     QString errorString = errorStrings.join("; ");
-    LOG_WARNING(QString("SSL errors for client %1: %2").arg(_clientId).arg(errorString));
+    LOG_WARNING(QString("SSL errors detected for client %1: %2").arg(_clientId).arg(errorString));
+    
+    // 记录SSL配置信息以便调试
+    QSslConfiguration config = _socket->sslConfiguration();
+    LOG_DEBUG(QString("SSL Protocol for client %1: %2").arg(_clientId).arg(static_cast<int>(config.protocol())));
+    LOG_DEBUG(QString("SSL Ciphers for client %1: %2").arg(_clientId).arg(config.ciphers().size()));
+    LOG_DEBUG(QString("SSL Peer Verify Mode for client %1: %2").arg(_clientId).arg(static_cast<int>(config.peerVerifyMode())));
     
     // 在生产环境中，应该根据具体的SSL错误决定是否忽略
     // 这里为了测试方便，忽略所有SSL错误

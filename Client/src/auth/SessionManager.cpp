@@ -4,6 +4,8 @@
 #include <QStandardPaths>
 #include <QCoreApplication>
 #include <QMutexLocker>
+#include <QThread>
+#include <QMetaObject>
 
 // 静态成员初始化
 SessionManager* SessionManager::s_instance = nullptr;
@@ -47,6 +49,10 @@ SessionManager* SessionManager::instance()
         QMutexLocker locker(&s_mutex);
         if (!s_instance) {
             s_instance = new SessionManager();
+            // 确保在主线程中创建
+            if (QThread::currentThread() != QCoreApplication::instance()->thread()) {
+                LOG_WARNING("SessionManager instance created in non-main thread");
+            }
         }
     }
     return s_instance;
@@ -57,6 +63,19 @@ bool SessionManager::createSession(User* user, const QString &sessionToken, bool
     if (!user || sessionToken.isEmpty()) {
         LOG_ERROR("Invalid parameters for creating session");
         return false;
+    }
+    
+    // 确保在主线程中执行
+    if (QThread::currentThread() != QCoreApplication::instance()->thread()) {
+        LOG_ERROR("createSession called from non-main thread");
+        // 使用QMetaObject::invokeMethod确保在主线程中执行
+        bool result = false;
+        QMetaObject::invokeMethod(this, "createSession", Qt::BlockingQueuedConnection,
+                                Q_RETURN_ARG(bool, result),
+                                Q_ARG(User*, user),
+                                Q_ARG(QString, sessionToken),
+                                Q_ARG(bool, rememberMe));
+        return result;
     }
     
     // 销毁现有会话
@@ -213,7 +232,12 @@ bool SessionManager::tryAutoLogin()
     auto loginInfo = getSavedLoginInfo();
     if (!loginInfo.first.isEmpty() && !loginInfo.second.isEmpty()) {
         LOG_INFO("Auto login requested for user: " + loginInfo.first);
-        emit autoLoginRequested(loginInfo.first, loginInfo.second);
+        
+        // 使用QTimer::singleShot延迟发送信号，避免在构造过程中的循环调用
+        QTimer::singleShot(100, this, [this, loginInfo]() {
+            emit autoLoginRequested(loginInfo.first, loginInfo.second);
+        });
+        
         return true;
     }
     

@@ -3,6 +3,7 @@
 #include <QQmlContext>
 #include <QStandardPaths>
 #include <QDir>
+#include <QTimer>
 
 #include "src/auth/AuthManager.h"
 #include "src/auth/SessionManager.h"
@@ -33,37 +34,32 @@ int main(int argc, char *argv[])
         if (!Logger::initialize(relativeLogDir, "Client")) {
             qWarning() << "Failed to initialize logger with relative path";
             // 继续运行，但记录警告
-        } else {
-            qDebug() << "Logger initialized with relative path";
         }
-    } else {
-        qDebug() << "Logger initialized successfully";
     }
 
-    // 初始化数据库
+    // 异步初始化数据库，避免阻塞主线程
     DatabaseManager* dbManager = DatabaseManager::instance();
     
-    try {
-        if (!dbManager->initialize()) {
-            LOG_ERROR("Failed to initialize database");
-            return -1;
+    // 使用QTimer异步初始化数据库
+    QTimer::singleShot(0, [dbManager]() {
+        try {
+            if (!dbManager->initialize()) {
+                LOG_ERROR("Failed to initialize database");
+            } else {
+                LOG_INFO("Database initialized successfully");
+            }
+        } catch (const std::exception& e) {
+            LOG_ERROR(QString("Exception during database initialization: %1").arg(e.what()));
+        } catch (...) {
+            LOG_ERROR("Unknown exception during database initialization");
         }
-        LOG_INFO("Database initialized successfully");
-    } catch (const std::exception& e) {
-        LOG_ERROR(QString("Exception during database initialization: %1").arg(e.what()));
-        return -1;
-    } catch (...) {
-        LOG_ERROR("Unknown exception during database initialization");
-        return -1;
-    }
+    });
 
     // 注册QML类型
     qmlRegisterType<User>("QKChat", 1, 0, "User");
     qmlRegisterType<AuthResponse>("QKChat", 1, 0, "AuthResponse");
-    qmlRegisterUncreatableType<AuthManager>("QKChat", 1, 0, "AuthManager",
-                                           "AuthManager is a singleton");
-    qmlRegisterUncreatableType<SessionManager>("QKChat", 1, 0, "SessionManager",
-                                              "SessionManager is a singleton");
+    qmlRegisterType<AuthManager>("QKChat", 1, 0, "AuthManager");
+    qmlRegisterType<SessionManager>("QKChat", 1, 0, "SessionManager");
 
     // 创建QML引擎
     QQmlApplicationEngine engine;

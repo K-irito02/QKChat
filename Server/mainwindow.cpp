@@ -51,18 +51,16 @@ void MainWindow::setupUI()
     move(x, y);
     
     // 创建中央部件
-    centralWidget = new QWidget(this);
+    QWidget* centralWidget = new QWidget(this);
     if (!centralWidget) {
-        qDebug() << "Error: Failed to create central widget";
-        throw std::runtime_error("Failed to create central widget");
+        return;
     }
     setCentralWidget(centralWidget);
     
     // 创建主布局
-    mainLayout = new QVBoxLayout(centralWidget);
+    QVBoxLayout* mainLayout = new QVBoxLayout(centralWidget);
     if (!mainLayout) {
-        qDebug() << "Error: Failed to create main layout";
-        throw std::runtime_error("Failed to create main layout");
+        return;
     }
     mainLayout->setSpacing(20);
     mainLayout->setContentsMargins(40, 40, 40, 40);

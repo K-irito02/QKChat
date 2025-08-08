@@ -299,27 +299,19 @@ Rectangle {
         target: authManager
 
         function onRegisterSucceeded(user) {
-            console.log("Register succeeded for user:", user.username)
             registerSucceeded()
         }
 
         function onRegisterFailed(error) {
-            console.log("Register failed:", error)
             errorText.text = error
             errorText.visible = true
         }
 
         function onVerificationCodeSent() {
-            console.log("Verification code sent")
-            isSendingCode = false
-            countdown = 60
-            countdownTimer.start()
-            messageDialog.showSuccess("验证码已发送", "请查看您的邮箱并输入验证码")
+            verificationCodeSent()
         }
 
         function onVerificationCodeFailed(error) {
-            console.log("Verification code failed:", error)
-            isSendingCode = false
             errorText.text = error
             errorText.visible = true
         }
