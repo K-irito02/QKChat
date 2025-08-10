@@ -50,7 +50,21 @@ AuthManager::AuthManager(QObject *parent)
 
 AuthManager::~AuthManager()
 {
-    disconnectFromServer();
+    LOG_INFO("AuthManager destructor called");
+
+    try {
+        _pendingRequests.clear();
+
+        if (_networkClient) {
+            disconnectFromServer();
+            _networkClient->deleteLater();
+            _networkClient = nullptr;
+        }
+
+        LOG_INFO("AuthManager destructor completed");
+    } catch (...) {
+        // 忽略析构错误
+    }
 }
 
 AuthManager* AuthManager::instance()
@@ -67,6 +81,15 @@ AuthManager* AuthManager::instance()
         }
     }
     return s_instance;
+}
+
+void AuthManager::cleanup()
+{
+    QMutexLocker locker(&s_mutex);
+    if (s_instance) {
+        delete s_instance;
+        s_instance = nullptr;
+    }
 }
 
 bool AuthManager::initialize(const QString &serverHost, quint16 serverPort, bool useTLS)

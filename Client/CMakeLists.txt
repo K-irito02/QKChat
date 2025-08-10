@@ -43,9 +43,12 @@ qt_add_resources(appClient "qml"
         qml/LoginPage.qml
         qml/RegisterPage.qml
         qml/pages/MainPage.qml
+        qml/windows/LoginWindow.qml
+        qml/windows/ChatWindow.qml
         qml/components/ThemeManager.qml
         qml/components/CustomTextField.qml
         qml/components/CustomButton.qml
+        qml/components/CustomDropdownButton.qml
         qml/components/LoadingDialog.qml
         qml/components/MessageDialog.qml
         qml/components/SettingsManager.qml

@@ -1,20 +1,151 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 import "qml/components" as Components
 
+/**
+ * @brief 主应用程序窗口管理器
+ *
+ * 负责管理登录窗口和聊天窗口的创建、切换和销毁
+ */
 ApplicationWindow {
     id: mainWindow
-    width: settingsManager.windowWidth
-    height: settingsManager.windowHeight
-    visible: true
-    title: qsTr("QKChat")
-    
+    width: 1
+    height: 1
+    visible: false  // 主窗口不可见，只作为管理器
+    title: qsTr("QKChat Manager")
+
+    // 窗口管理
+    property var loginWindow: null
+    property var chatWindow: null
+    property bool appInitialized: false
+
+
+
+    // 创建登录窗口
+    function createLoginWindow() {
+        if (loginWindow) {
+            loginWindow.destroy()
+        }
+
+        var component = Qt.createComponent("qml/windows/LoginWindow.qml")
+        if (component.status === Component.Ready) {
+            loginWindow = component.createObject(null, {
+                "themeManager": themeManager,
+                "authManager": authManager,
+                "sessionManager": sessionManager,
+                "settingsManager": settingsManager
+            })
+
+            if (loginWindow) {
+                // 连接信号
+                loginWindow.loginSucceeded.connect(onLoginSucceeded)
+                loginWindow.windowClosed.connect(onLoginWindowClosed)
+
+                // 显示窗口
+                loginWindow.show()
+                loginWindow.raise()
+                loginWindow.requestActivate()
+            }
+        }
+    }
+
+    // 创建聊天窗口
+    function createChatWindow() {
+        if (chatWindow) {
+            chatWindow.destroy()
+        }
+
+        var component = Qt.createComponent("qml/windows/ChatWindow.qml")
+        if (component.status === Component.Ready) {
+            createChatWindowObject(component)
+        } else if (component.status === Component.Loading) {
+            component.statusChanged.connect(function() {
+                if (component.status === Component.Ready) {
+                    createChatWindowObject(component)
+                }
+            })
+        }
+    }
+
+    // 创建聊天窗口对象的辅助函数
+    function createChatWindowObject(component) {
+        chatWindow = component.createObject(null, {
+            "themeManager": themeManager,
+            "authManager": authManager,
+            "sessionManager": sessionManager,
+            "settingsManager": settingsManager
+        })
+
+        if (chatWindow) {
+            // 连接信号
+            chatWindow.logout.connect(onLogout)
+            chatWindow.windowClosed.connect(onChatWindowClosed)
+
+            // 显示窗口
+            chatWindow.show()
+            chatWindow.raise()
+            chatWindow.requestActivate()
+        }
+    }
+
+    // 登录成功处理
+    function onLoginSucceeded(user) {
+        // 关闭登录窗口（先断开信号连接，避免触发退出）
+        if (loginWindow) {
+            // 断开信号连接，避免触发windowClosed导致退出
+            try {
+                loginWindow.loginSucceeded.disconnect(onLoginSucceeded)
+                loginWindow.windowClosed.disconnect(onLoginWindowClosed)
+            } catch (error) {
+                // 忽略断开连接的错误
+            }
+
+            loginWindow.close()
+            loginWindow.destroy()
+            loginWindow = null
+        }
+
+        // 延迟创建聊天窗口，确保登录窗口完全销毁
+        Qt.callLater(function() {
+            createChatWindow()
+        })
+    }
+
+    // 登出处理
+    function onLogout() {
+        // 关闭聊天窗口（先断开信号连接）
+        if (chatWindow) {
+            try {
+                chatWindow.logout.disconnect(onLogout)
+                chatWindow.windowClosed.disconnect(onChatWindowClosed)
+            } catch (error) {
+                // 忽略断开连接的错误
+            }
+
+            chatWindow.close()
+            chatWindow.destroy()
+            chatWindow = null
+        }
+
+        // 创建并显示登录窗口
+        createLoginWindow()
+    }
+
+    // 登录窗口关闭处理
+    function onLoginWindowClosed() {
+        Qt.quit()
+    }
+
+    // 聊天窗口关闭处理
+    function onChatWindowClosed() {
+        Qt.quit()
+    }
 
     // 连接状态管理
     property bool lastConnectionState: true
     property bool connectionErrorShown: false
-    property bool appInitialized: false
     property bool startupCompleted: false  // 启动是否完全完成
 
     // 防抖定时器
@@ -24,7 +155,6 @@ ApplicationWindow {
         repeat: false
         onTriggered: {
             if (typeof authManager !== "undefined" && authManager && !authManager.isConnected && !connectionErrorShown && appInitialized) {
-                messageDialog.showError("连接错误", "与服务器的连接已断开")
                 connectionErrorShown = true
             }
         }
@@ -98,222 +228,18 @@ ApplicationWindow {
         }
     }
 
-    // 加载对话框
-    Components.LoadingDialog {
-        id: loadingDialog
-        themeManager: themeManager
-        parent: Overlay.overlay
-    }
-
-    // 消息对话框
-    Components.MessageDialog {
-        id: messageDialog
-        themeManager: themeManager
-        parent: Overlay.overlay
-    }
-
-    // 启动画面
-    Rectangle {
-        id: startupScreen
-        anchors.fill: parent
-        color: themeManager ? themeManager.currentTheme.backgroundColor : "#FFFFFF"
-        visible: !startupCompleted
-        
-        Column {
-            anchors.centerIn: parent
-            spacing: 20
-            
-            Text {
-                text: "QKChat"
-                font.pixelSize: 32
-                font.bold: true
-                color: themeManager ? themeManager.currentTheme.textPrimaryColor : "#000000"
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
-            
-            Text {
-                text: "正在初始化..."
-                font.pixelSize: 16
-                color: themeManager ? themeManager.currentTheme.textSecondaryColor : "#666666"
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
-        }
-    }
-    
-    // 页面栈
-    StackView {
-        id: stackView
-        anchors.fill: parent
-        visible: startupCompleted
-        initialItem: null  // 不立即加载，等待启动完成
-
-        // 确保初始项目的透明度和立即显示
-        Component.onCompleted: {
-            if (currentItem) {
-                currentItem.opacity = 1.0
-                currentItem.visible = true
-            }
-        }
-        
-        // 监听项目变化，确保新项目立即可见
-        onCurrentItemChanged: {
-            if (currentItem) {
-                currentItem.opacity = 1.0
-                currentItem.visible = true
-            }
-        }
-
-        // 使用自定义转换动画
-        pushEnter: Transition {
-            PropertyAnimation {
-                property: "x"
-                from: stackView.width
-                to: 0
-                duration: 250
-                easing.type: Easing.OutCubic
-            }
-            PropertyAnimation {
-                property: "opacity"
-                from: 1.0
-                to: 1.0
-                duration: 0
-            }
-        }
-
-        pushExit: Transition {
-            PropertyAnimation {
-                property: "x"
-                from: 0
-                to: -stackView.width * 0.3
-                duration: 300
-                easing.type: Easing.OutCubic
-            }
-            PropertyAnimation {
-                property: "opacity"
-                from: 1.0
-                to: 0.7
-                duration: 300
-                easing.type: Easing.OutCubic
-            }
-        }
-
-        popEnter: Transition {
-            PropertyAnimation {
-                property: "x"
-                from: -stackView.width * 0.3
-                to: 0
-                duration: 250
-                easing.type: Easing.OutCubic
-            }
-            PropertyAnimation {
-                property: "opacity"
-                from: 1.0
-                to: 1.0
-                duration: 0
-            }
-        }
-
-        popExit: Transition {
-            PropertyAnimation {
-                property: "x"
-                from: 0
-                to: stackView.width
-                duration: 300
-                easing.type: Easing.OutCubic
-            }
-            PropertyAnimation {
-                property: "opacity"
-                from: 1.0
-                to: 0.0
-                duration: 300
-                easing.type: Easing.OutCubic
-            }
-        }
-    }
-
-    // 登录页面组件
-    Component {
-        id: loginPageComponent
-        Loader {
-            source: "qml/LoginPage.qml"
-            asynchronous: false  // 同步加载避免显示问题
-            
-            opacity: 1.0
-            onLoaded: {
-                if (item) {
-                    item.opacity = 1.0
-                    item.visible = true
-                    
-                    // 设置属性和连接信号
-                    item.themeManager = themeManager
-                    item.loadingDialog = loadingDialog
-                    item.messageDialog = messageDialog
-                    item.navigateToRegister.connect(function() {
-                        stackView.push(registerPageComponent)
-                    })
-                    item.loginSucceeded.connect(function() {
-                        stackView.push(mainPageComponent)
-                    })
-                }
-            }
-        }
-    }
-
-
-
-    // 注册页面组件
-    Component {
-        id: registerPageComponent
-        Loader {
-            source: "qml/RegisterPage.qml"
-            asynchronous: false  // 同步加载避免显示问题
-            onLoaded: {
-                item.themeManager = themeManager
-                item.loadingDialog = loadingDialog
-                item.messageDialog = messageDialog
-                item.navigateToLogin.connect(function() {
-                    stackView.pop()
-                })
-                item.registerSucceeded.connect(function() {
-                    stackView.push(mainPageComponent)
-                })
-            }
-        }
-    }
-
-
-    // 主页面组件
-    Component {
-        id: mainPageComponent
-        Loader {
-            source: "qml/pages/MainPage.qml"
-            onLoaded: {
-                item.themeManager = themeManager
-                item.logout.connect(function() {
-                    stackView.clear()
-                    stackView.push(loginPageComponent)
-                })
-            }
-        }
-    }
-
     // 连接认证管理器信号
     Connections {
         target: typeof authManager !== "undefined" ? authManager : null
 
         function onConnectionStateChanged(connected) {
-            console.log("Connection state changed:", connected)
-
             // 更新连接状态
             if (connected) {
-                // 连接成功，停止定时器并重置错误标志
                 connectionCheckTimer.stop()
                 connectionErrorShown = false
                 lastConnectionState = true
             } else {
-                // 连接断开，但只在应用初始化完成且之前是连接状态时才显示错误
                 if (appInitialized && lastConnectionState && !connectionErrorShown) {
-                    // 启动定时器进行延迟检查
                     connectionCheckTimer.restart()
                 }
                 lastConnectionState = false
@@ -321,55 +247,35 @@ ApplicationWindow {
         }
 
         function onNetworkError(error) {
-            messageDialog.showError("网络错误", error)
+            // 网络错误处理
         }
 
         function onLoginSucceeded(user) {
-            // 保存登录信息（如果选择了记住密码）
-            if (typeof sessionManager !== "undefined" && sessionManager !== null) {
-                var currentPage = stackView.currentItem
-                if (currentPage && currentPage.item) {
-                    var loginPage = currentPage.item
-                    if (loginPage.rememberCheckBox && loginPage.rememberCheckBox.checked) {
-                        settingsManager.saveLoginInfo(
-                            loginPage.usernameInput.text,
-                            "", // 密码哈希由SessionManager处理
-                            true
-                        )
-                    }
-                }
-            }
-            stackView.push(mainPageComponent)
+            // AuthManager登录成功，由LoginWindow处理
         }
 
         function onLoginFailed(error) {
-            messageDialog.showError("登录失败", error)
+            // 登录失败处理
         }
 
         function onRegisterSucceeded(user) {
-            stackView.pop()
-            messageDialog.showSuccess("注册成功", "账号创建成功，请登录")
+            // 注册成功处理
         }
 
         function onRegisterFailed(error) {
-            messageDialog.showError("注册失败", error)
+            // 注册失败处理
         }
 
         function onVerificationCodeSent() {
-            messageDialog.showSuccess("验证码已发送", "验证码已发送到您的邮箱，请查收")
+            // 验证码发送成功
         }
 
         function onVerificationCodeFailed(error) {
-            messageDialog.showError("发送失败", error)
+            // 验证码发送失败
         }
 
         function onLoadingStateChanged(loading) {
-            // 启动期间完全忽略LoadingDialog，避免白雾效果
-            if (startupCompleted && loading) {
-                loadingDialog.show("正在处理请求...")
-            } else if (startupCompleted && !loading) {
-                loadingDialog.hide()
-            }
+            // 加载状态变化
         }
     }
 
@@ -378,26 +284,20 @@ ApplicationWindow {
         target: typeof sessionManager !== "undefined" ? sessionManager : null
 
         function onSessionExpired() {
-            messageDialog.showWarning("会话过期", "您的登录会话已过期，请重新登录")
-            stackView.clear()
-            stackView.push(loginPageComponent)
+            onLogout()
         }
 
         function onAutoLoginRequested(username, passwordHash) {
-            // 自动登录逻辑已在LoginPage中处理
+            // 自动登录请求处理
         }
     }
 
     // 应用程序启动时的初始化
     Component.onCompleted: {
-        // 检查authManager是否可用（延迟检查，给C++对象时间初始化）
         Qt.callLater(function() {
             if (typeof authManager === "undefined" || authManager === null) {
-                messageDialog.showError("初始化错误", "认证管理器不可用，请重启应用程序")
                 return
             }
-
-            // AuthManager可用，继续初始化
             initializeWithAuthManager()
         })
     }
@@ -407,25 +307,20 @@ ApplicationWindow {
         // 标记应用已初始化
         appInitialized = true
 
-        // 恢复窗口位置
-        if (settingsManager.windowX >= 0 && settingsManager.windowY >= 0) {
-            x = settingsManager.windowX
-            y = settingsManager.windowY
-        }
-
         // 延迟初始化，避免阻塞UI线程
         autoConnectTimer.start()
     }
-    
+
     // 完成启动流程的函数
     function completeStartup() {
         // 等待一小段时间确保所有异步操作完成
         Qt.callLater(function() {
             startupCompleted = true
-            stackView.push(loginPageComponent)
+            // 创建并显示登录窗口
+            createLoginWindow()
         })
     }
-    
+
     // 处理启动超时的定时器
     Timer {
         id: startupTimeoutTimer

@@ -38,6 +38,7 @@ SessionManager::SessionManager(QObject *parent)
 
 SessionManager::~SessionManager()
 {
+    stopSessionTimer();
     saveSettings();
     destroySession();
 }
@@ -56,6 +57,15 @@ SessionManager* SessionManager::instance()
         }
     }
     return s_instance;
+}
+
+void SessionManager::cleanup()
+{
+    QMutexLocker locker(&s_mutex);
+    if (s_instance) {
+        delete s_instance;
+        s_instance = nullptr;
+    }
 }
 
 bool SessionManager::createSession(User* user, const QString &sessionToken, bool rememberMe)

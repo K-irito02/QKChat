@@ -6,6 +6,9 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QTimer>
+#include <QLoggingCategory>
+#include <QDebug>
+#include <exception>
 
 #include "src/auth/AuthManager.h"
 #include "src/auth/SessionManager.h"
@@ -16,16 +19,23 @@
 
 int main(int argc, char *argv[])
 {
-    // 设置Qt Quick Controls样式环境变量（在QGuiApplication创建之前）
-    qputenv("QT_QUICK_CONTROLS_STYLE", "Basic");
+    try {
+        // 设置Qt Quick Controls样式环境变量（在QGuiApplication创建之前）
+        qputenv("QT_QUICK_CONTROLS_STYLE", "Basic");
 
-    QGuiApplication app(argc, argv);
+        // 禁用QML调试信息
+        QLoggingCategory::setFilterRules("qt.qml.debug=false");
+
+        QGuiApplication app(argc, argv);
 
     // 设置应用程序信息
     app.setApplicationName("QKChat Client");
     app.setApplicationVersion("1.0.0");
     app.setOrganizationName("QKChat");
     app.setOrganizationDomain("qkchat.com");
+
+    // 禁用自动退出，手动控制应用程序生命周期
+    app.setQuitOnLastWindowClosed(false);
 
     // 初始化日志系统
     QString logDir = "D:/QT_Learn/Projects/QKChat/Client/logs";
@@ -140,14 +150,25 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    LOG_INFO("QKChat Client started successfully");
+        LOG_INFO("QKChat Client started successfully");
 
-    // 运行应用程序
-    int result = app.exec();
+        // 运行应用程序
+        int result = app.exec();
 
-    // 清理资源
-    LOG_INFO("QKChat Client shutting down");
-    dbManager->close();
-    Logger::shutdown();
-    return result;
+        // 安全的资源清理
+        try {
+            if (authManager && authManager->isConnected()) {
+                authManager->disconnectFromServer();
+            }
+            if (dbManager) {
+                dbManager->close();
+            }
+        } catch (...) {
+            // 忽略清理错误
+        }
+        return result;
+
+    } catch (...) {
+        return -1;
+    }
 }

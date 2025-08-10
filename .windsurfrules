@@ -11,10 +11,10 @@
 - **缓存系统**: Redis 6.0+ (服务端)
 - **加密库**: OpenSSL 3.0+
 - **构建系统**: CMake 3.16+
-- **编译器**: MinGW (Windows), GCC/Clang (Linux/macOS)
+- **编译器**: MinGW (Windows)
 
 ### 开发环境要求
-- Qt Creator 或 Visual Studio Code + Qt插件
+- Qt Creator
 - Qt6.5+ SDK完整安装
 - MySQL Server 8.0+ 数据库服务
 - Redis Server 6.0+ 缓存服务

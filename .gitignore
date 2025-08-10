@@ -81,10 +81,20 @@ certs/
 third-libraries/
 third_party/
 
-# ===== 问题记录目录 =====
-问题记录/
-
 # ===== 操作系统文件 =====
 .DS_Store
 Thumbs.db
 desktop.ini 
+
+# ===== Python虚拟环境 =====
+venv/
+MCP/
+
+# ===== 编辑器配置文件 =====
+.vscode/
+.augment/
+.cursor/
+.windsurfrules
+
+# ===== 其它文件 =====
+问题记录/

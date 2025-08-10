@@ -1,6 +1,7 @@
 module Components
 
 CustomButton 1.0 CustomButton.qml
+CustomDropdownButton 1.0 CustomDropdownButton.qml
 CustomTextField 1.0 CustomTextField.qml
 LoadingDialog 1.0 LoadingDialog.qml
 MessageDialog 1.0 MessageDialog.qml

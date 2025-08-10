@@ -5,9 +5,12 @@
         <file>qml/LoginPage.qml</file>
         <file>qml/RegisterPage.qml</file>
         <file>qml/pages/MainPage.qml</file>
+        <file>qml/windows/LoginWindow.qml</file>
+        <file>qml/windows/ChatWindow.qml</file>
         <file>qml/components/ThemeManager.qml</file>
         <file>qml/components/CustomTextField.qml</file>
         <file>qml/components/CustomButton.qml</file>
+        <file>qml/components/CustomDropdownButton.qml</file>
         <file>qml/components/LoadingDialog.qml</file>
         <file>qml/components/MessageDialog.qml</file>
         <file>qml/components/SettingsManager.qml</file>

@@ -18,10 +18,18 @@ QtObject {
     property string savedPasswordHash: ""
 
     // 窗口设置
-    property int windowWidth: 450
-    property int windowHeight: 700
+    property int windowWidth: 1440
+    property int windowHeight: 900
     property int windowX: -1
     property int windowY: -1
+
+    // 登录界面窗口设置
+    property int loginWindowWidth: 450
+    property int loginWindowHeight: 600
+
+    // 聊天界面窗口设置
+    property int chatWindowWidth: 1440
+    property int chatWindowHeight: 900
 
     // 语言设置
     property string language: "zh_CN"

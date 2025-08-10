@@ -32,6 +32,12 @@ public:
      * @return 会话管理器实例
      */
     static SessionManager* instance();
+
+    /**
+     * @brief 清理单例实例
+     * 在应用程序退出前调用，确保安全清理
+     */
+    static void cleanup();
     
     /**
      * @brief 创建用户会话

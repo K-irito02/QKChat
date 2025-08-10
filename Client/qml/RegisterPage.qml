@@ -14,6 +14,7 @@ Rectangle {
 
     // 公共属性
     property var themeManager
+    property var authManager
     property var loadingDialog
     property var messageDialog
 
@@ -608,7 +609,7 @@ Rectangle {
 
     // 连接认证管理器信号
     Connections {
-        target: authManager
+        target: typeof authManager !== "undefined" ? authManager : null
 
         function onRegisterSucceeded(user) {
             registerSucceeded()

@@ -14,12 +14,14 @@ Rectangle {
 
     // 公共属性
     property var themeManager
+    property var authManager
+    property var sessionManager
     property var loadingDialog
     property var messageDialog
 
     // 信号
     signal navigateToRegister()
-    signal loginSucceeded()
+    signal loginSucceeded(var user)
 
     color: themeManager ? themeManager.currentTheme.backgroundColor : "#FFFFFF"
     opacity: 1.0  // 确保页面完全不透明
@@ -478,10 +480,10 @@ Rectangle {
 
     // 连接认证管理器信号
     Connections {
-        target: authManager
+        target: typeof authManager !== "undefined" ? authManager : null
 
         function onLoginSucceeded(user) {
-            loginSucceeded()
+            loginSucceeded(user)
         }
 
         function onLoginFailed(error) {

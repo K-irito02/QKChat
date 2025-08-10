@@ -49,6 +49,12 @@ public:
      * @return 认证管理器实例
      */
     static AuthManager* instance();
+
+    /**
+     * @brief 清理单例实例
+     * 在应用程序退出前调用，确保安全清理
+     */
+    static void cleanup();
     
     /**
      * @brief 初始化认证管理器
