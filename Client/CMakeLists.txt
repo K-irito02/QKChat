@@ -35,10 +35,10 @@ qt_add_executable(appClient
     src/utils/SmartErrorHandler.cpp
 )
 
-qt_add_qml_module(appClient
-    URI Client
-    VERSION 1.0
-    QML_FILES
+# 添加QML资源文件
+qt_add_resources(appClient "qml"
+    PREFIX "/"
+    FILES
         Main.qml
         qml/LoginPage.qml
         qml/RegisterPage.qml
@@ -50,6 +50,7 @@ qt_add_qml_module(appClient
         qml/components/MessageDialog.qml
         qml/components/SettingsManager.qml
         qml/components/PageTransition.qml
+        qml/components/qmldir
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.

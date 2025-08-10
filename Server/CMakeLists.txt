@@ -77,6 +77,8 @@ set(PROJECT_SOURCES
         src/auth/EmailService.cpp
         src/auth/SmtpClient.h
         src/auth/SmtpClient.cpp
+        src/auth/VerificationCodeManager.h
+        src/auth/VerificationCodeManager.cpp
 
         # 网络模块
         src/network/TcpServer.h
@@ -162,11 +164,25 @@ set_target_properties(Server PROPERTIES
     WIN32_EXECUTABLE TRUE
 )
 
+# 自动复制配置文件到构建目录
+add_custom_command(TARGET Server POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:Server>/config
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/config/server.json
+        $<TARGET_FILE_DIR:Server>/config/server.json
+    COMMENT "Copying configuration files to build directory"
+)
+
 include(GNUInstallDirs)
 install(TARGETS Server
     BUNDLE DESTINATION .
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+# 安装配置文件
+install(FILES config/server.json
+    DESTINATION ${CMAKE_INSTALL_BINDIR}/config
 )
 
 if(QT_VERSION_MAJOR EQUAL 6)

@@ -164,6 +164,17 @@ private:
      */
     bool initializeTcpServer();
 
+private slots:
+    /**
+     * @brief 异步初始化证书
+     */
+    void initializeCertificatesAsync();
+
+    /**
+     * @brief 异步初始化可选组件
+     */
+    void initializeOptionalComponentsAsync();
+
 private:
     static ServerManager* s_instance;
     

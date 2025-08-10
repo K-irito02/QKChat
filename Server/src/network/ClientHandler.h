@@ -9,6 +9,9 @@
 #include <QDateTime>
 #include <QHostAddress>
 
+// 前向声明
+class ProtocolHandler;
+
 /**
  * @brief 客户端处理器类
  * 
@@ -32,7 +35,7 @@ public:
     };
     Q_ENUM(ClientState)
 
-    explicit ClientHandler(qintptr socketDescriptor, bool useTLS = true, QObject *parent = nullptr);
+    explicit ClientHandler(qintptr socketDescriptor, ProtocolHandler *protocolHandler, bool useTLS = true, QObject *parent = nullptr);
     ~ClientHandler();
     
     /**
@@ -222,6 +225,7 @@ private:
 
 private:
     QSslSocket* _socket;
+    ProtocolHandler* _protocolHandler;
     QString _clientId;
     qint64 _userId;
     ClientState _state;

@@ -105,8 +105,8 @@ void User::fromJson(const QJsonObject &json)
         setCreatedAt(QDateTime::fromString(json["created_at"].toString(), Qt::ISODate));
     }
     
-    if (json.contains("last_login")) {
-        setLastLogin(QDateTime::fromString(json["last_login"].toString(), Qt::ISODate));
+    if (json.contains("last_online")) {
+        setLastLogin(QDateTime::fromString(json["last_online"].toString(), Qt::ISODate));
     }
 }
 
@@ -126,7 +126,7 @@ QJsonObject User::toJson() const
     }
     
     if (_lastLogin.isValid()) {
-        json["last_login"] = _lastLogin.toString(Qt::ISODate);
+        json["last_online"] = _lastLogin.toString(Qt::ISODate);
     }
     
     return json;

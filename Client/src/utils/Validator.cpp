@@ -80,8 +80,9 @@ bool Validator::isValidVerificationCode(const QString &code, int length)
         return false;
     }
     
-    // 检查是否全为数字
-    return isNumeric(trimmed);
+    // 检查是否全为数字（使用正则表达式确保严格匹配）
+    QRegularExpression numericRegex("^[0-9]+$");
+    return numericRegex.match(trimmed).hasMatch();
 }
 
 bool Validator::isValidPhoneNumber(const QString &phone)

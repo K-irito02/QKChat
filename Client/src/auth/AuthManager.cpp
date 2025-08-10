@@ -16,7 +16,7 @@ AuthManager::AuthManager(QObject *parent)
     , _networkClient(nullptr)
     , _sessionManager(nullptr)
     , _serverPort(0)
-    , _useTLS(true)
+    , _useTLS(false)  // 暂时禁用SSL
     , _authState(Idle)
 {
     // 创建网络客户端
@@ -73,18 +73,18 @@ bool AuthManager::initialize(const QString &serverHost, quint16 serverPort, bool
 {
     _serverHost = serverHost;
     _serverPort = serverPort;
-    _useTLS = useTLS;
+    _useTLS = false;  // 强制禁用SSL
     
-    LOG_INFO(QString("AuthManager initialized with server %1:%2 (TLS: %3)")
-             .arg(serverHost).arg(serverPort).arg(useTLS ? "Yes" : "No"));
+    LOG_INFO(QString("AuthManager initialized with server %1:%2 (TLS: disabled)")
+             .arg(serverHost).arg(serverPort));
     
     return true;
 }
 
 bool AuthManager::connectToServer()
 {
-    LOG_INFO(QString("AuthManager::connectToServer() called - Host: %1, Port: %2, TLS: %3")
-             .arg(_serverHost).arg(_serverPort).arg(_useTLS ? "Yes" : "No"));
+    LOG_INFO(QString("AuthManager::connectToServer() called - Host: %1, Port: %2, TLS: disabled")
+             .arg(_serverHost).arg(_serverPort));
 
     if (_serverHost.isEmpty() || _serverPort == 0) {
         LOG_ERROR("Server configuration not set");
@@ -98,7 +98,7 @@ bool AuthManager::connectToServer()
 
     LOG_INFO("Setting auth state to Connecting and calling NetworkClient::connectToServer");
     setAuthState(Connecting);
-    bool result = _networkClient->connectToServer(_serverHost, _serverPort, _useTLS);
+    bool result = _networkClient->connectToServer(_serverHost, _serverPort, false);  // 强制禁用SSL
     LOG_INFO(QString("NetworkClient::connectToServer returned: %1").arg(result ? "true" : "false"));
     return result;
 }
@@ -130,12 +130,8 @@ bool AuthManager::login(const QString &username, const QString &password, bool r
     
     setAuthState(LoggingIn);
     
-    // 生成密码哈希
-    QString salt = Crypto::generateSalt();
-    QString passwordHash = Crypto::hashPassword(password, salt);
-    
-    // 发送登录请求
-    QString requestId = _networkClient->sendLoginRequest(username, passwordHash, rememberMe);
+    // 发送登录请求 - 发送原始密码，让服务器使用存储的salt计算哈希
+    QString requestId = _networkClient->sendLoginRequest(username, password, rememberMe);
     if (requestId.isEmpty()) {
         setAuthState(Idle);
         emit loginFailed("发送登录请求失败");
@@ -145,7 +141,10 @@ bool AuthManager::login(const QString &username, const QString &password, bool r
     _pendingRequests[requestId] = "login";
     
     // 保存登录信息（如果启用记住登录）
+    // 注意：为了安全，我们保存密码哈希而不是原始密码
     if (rememberMe) {
+        QString salt = Crypto::generateSalt();
+        QString passwordHash = Crypto::hashPassword(password, salt);
         _sessionManager->saveLoginInfo(username, passwordHash);
     }
     
@@ -175,12 +174,9 @@ bool AuthManager::registerUser(const QString &username, const QString &email,
     
     setAuthState(Registering);
     
-    // 生成密码哈希
-    QString salt = Crypto::generateSalt();
-    QString passwordHash = Crypto::hashPassword(password, salt);
+    // 发送注册请求 - 发送原始密码，让服务器生成salt和哈希
+    QString requestId = _networkClient->sendRegisterRequest(username, email, password, verificationCode);
     
-    // 发送注册请求
-    QString requestId = _networkClient->sendRegisterRequest(username, email, passwordHash, verificationCode);
     if (requestId.isEmpty()) {
         setAuthState(Idle);
         emit registerFailed("发送注册请求失败");
@@ -215,6 +211,7 @@ bool AuthManager::sendVerificationCode(const QString &email)
     
     // 发送验证码请求
     QString requestId = _networkClient->sendVerificationCodeRequest(email);
+    
     if (requestId.isEmpty()) {
         setAuthState(Idle);
         emit verificationCodeFailed("发送验证码请求失败");
@@ -338,6 +335,12 @@ void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &r
     setAuthState(Idle);
 
     AuthResponse* authResponse = processAuthResponse(response);
+    
+    LOG_INFO(QString("Processing login response: success=%1, message='%2', hasUser=%3, hasSessionToken=%4")
+             .arg(authResponse->success())
+             .arg(authResponse->message())
+             .arg(authResponse->user() != nullptr)
+             .arg(!authResponse->sessionToken().isEmpty()));
 
     if (authResponse->success()) {
         User* user = authResponse->user();
@@ -348,6 +351,7 @@ void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &r
             bool rememberMe = _sessionManager->isRememberMeEnabled();
             if (_sessionManager->createSession(user, sessionToken, rememberMe)) {
                 LOG_INFO(QString("Login successful for user: %1").arg(user->username()));
+                
                 emit loginSucceeded(user);
             } else {
                 LOG_ERROR("Failed to create session after successful login");
@@ -355,10 +359,12 @@ void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &r
             }
         } else {
             LOG_ERROR("Invalid login response: missing user data or session token");
+
             emit loginFailed("服务器响应数据无效");
         }
     } else {
         LOG_WARNING(QString("Login failed: %1").arg(authResponse->message()));
+
         emit loginFailed(authResponse->message());
     }
 

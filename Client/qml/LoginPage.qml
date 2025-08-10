@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QKChat 1.0
 import "components" as Components
 
 /**
@@ -22,7 +21,25 @@ Rectangle {
     signal navigateToRegister()
     signal loginSucceeded()
 
-    color: themeManager.currentTheme.backgroundColor
+    color: themeManager ? themeManager.currentTheme.backgroundColor : "#FFFFFF"
+    opacity: 1.0  // 确保页面完全不透明
+
+    // 安全的主题访问函数
+    function safeTheme() {
+        return themeManager ? themeManager.currentTheme : {
+            backgroundColor: "#FFFFFF",
+            primaryColor: "#007AFF",
+            primaryLightColor: "#4DA6FF",
+            textPrimaryColor: "#000000",
+            textSecondaryColor: "#666666",
+            textTertiaryColor: "#999999",
+            shadowColor: "#00000015",
+            dividerColor: "#F0F0F0",
+            successColor: "#34C759",
+            errorColor: "#FF3B30",
+            inputBorderColor: "#E0E0E0"
+        }
+    }
 
     // 执行登录
     function performLogin() {
@@ -115,12 +132,12 @@ Rectangle {
                     Layout.preferredWidth: 100
                     Layout.preferredHeight: 100
                     radius: 25
-                    color: themeManager.currentTheme.primaryColor
+                    color: safeTheme().primaryColor
 
                     // 渐变效果
                     gradient: Gradient {
-                        GradientStop { position: 0.0; color: themeManager.currentTheme.primaryColor }
-                        GradientStop { position: 1.0; color: themeManager.currentTheme.primaryLightColor }
+                        GradientStop { position: 0.0; color: safeTheme().primaryColor }
+                        GradientStop { position: 1.0; color: safeTheme().primaryLightColor }
                     }
 
                     Text {
@@ -137,7 +154,7 @@ Rectangle {
                         anchors.fill: parent
                         anchors.margins: -3
                         color: "transparent"
-                        border.color: themeManager.currentTheme.shadowColor
+                        border.color: safeTheme().shadowColor
                         border.width: 1
                         radius: parent.radius + 3
                         z: -1
@@ -151,7 +168,7 @@ Rectangle {
                     font.pixelSize: 28
                     font.weight: Font.DemiBold
                     font.family: "Microsoft YaHei UI"
-                    color: themeManager.currentTheme.textPrimaryColor
+                    color: safeTheme().textPrimaryColor
                     font.letterSpacing: 1.0
                 }
             }

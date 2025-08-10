@@ -21,17 +21,8 @@ int main(int argc, char *argv[])
     a.setOrganizationName("QKChat");
     a.setOrganizationDomain("qkchat.com");
 
-    // 初始化日志系统
-    QString logDir = "D:/QT_Learn/Projects/QKChat/Server/logs";
-    QDir().mkpath(logDir); // 确保目录存在
-
-    if (!Logger::initialize(logDir, "Server")) {
-        // 尝试使用相对路径
-        QString relativeLogDir = "logs";
-        if (!Logger::initialize(relativeLogDir, "Server")) {
-            // 继续运行，但记录警告
-        }
-    }
+    // 注意：日志系统将在ServerManager::initialize()中初始化
+    // 这里不再重复初始化，避免潜在的多线程问题
 
     // 初始化服务器管理器
     ServerManager* serverManager = ServerManager::instance();

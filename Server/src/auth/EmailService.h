@@ -9,6 +9,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include "../database/DatabaseManager.h"
+#include "../database/RedisClient.h"
 
 // 前向声明
 class SmtpClient;
@@ -72,13 +73,15 @@ public:
     SendResult sendVerificationCode(const QString &email, CodeType codeType = Registration);
     
     /**
-     * @brief 验证验证码
-     * @param email 邮箱地址
+     * @brief 发送验证码邮件（使用指定验证码）
+     * @param email 目标邮箱
      * @param code 验证码
      * @param codeType 验证码类型
-     * @return 验证是否成功
+     * @return 发送结果
      */
-    bool verifyCode(const QString &email, const QString &code, CodeType codeType = Registration);
+    SendResult sendVerificationCode(const QString &email, const QString &code, CodeType codeType = Registration);
+    
+
     
     /**
      * @brief 发送自定义邮件
@@ -91,12 +94,7 @@ public:
     SendResult sendCustomEmail(const QString &email, const QString &subject, 
                               const QString &content, bool isHtml = true);
     
-    /**
-     * @brief 检查邮箱发送频率限制
-     * @param email 邮箱地址
-     * @return 是否被限制
-     */
-    bool isRateLimited(const QString &email);
+
     
     /**
      * @brief 获取发送结果描述
@@ -105,12 +103,7 @@ public:
      */
     static QString getSendResultDescription(SendResult result);
     
-    /**
-     * @brief 设置发送频率限制
-     * @param intervalSeconds 发送间隔（秒）
-     * @param maxPerHour 每小时最大发送数
-     */
-    void setRateLimit(int intervalSeconds = 60, int maxPerHour = 10);
+
     
     /**
      * @brief 设置验证码有效期
@@ -142,20 +135,7 @@ private slots:
     void onCleanupTimer();
 
 private:
-    /**
-     * @brief 生成验证码
-     * @return 6位数字验证码
-     */
-    QString generateVerificationCode();
-    
-    /**
-     * @brief 保存验证码到数据库
-     * @param email 邮箱地址
-     * @param code 验证码
-     * @param codeType 验证码类型
-     * @return 保存是否成功
-     */
-    bool saveVerificationCode(const QString &email, const QString &code, CodeType codeType);
+
     
     /**
      * @brief 获取邮件模板
@@ -172,19 +152,9 @@ private:
      */
     QString getEmailSubject(CodeType codeType);
     
-    /**
-     * @brief 记录发送历史
-     * @param email 邮箱地址
-     * @param success 是否成功
-     */
-    void recordSendHistory(const QString &email, bool success);
+
     
-    /**
-     * @brief 检查发送频率
-     * @param email 邮箱地址
-     * @return 是否超出限制
-     */
-    bool checkSendFrequency(const QString &email);
+
     
     /**
      * @brief 实际发送邮件
@@ -198,11 +168,17 @@ private:
                           const QString &content, bool isHtml);
     
     /**
-     * @brief 验证码类型转字符串
-     * @param codeType 验证码类型
-     * @return 类型字符串
+     * @brief 发送验证码邮件（防重复发送）
+     * @param email 目标邮箱
+     * @param subject 邮件主题
+     * @param content 邮件内容
+     * @param isHtml 是否为HTML格式
+     * @return 发送是否成功
      */
-    QString codeTypeToString(CodeType codeType);
+    bool sendVerificationCodeEmail(const QString &email, const QString &subject, 
+                                  const QString &content, bool isHtml);
+    
+
 
 private slots:
     void onEmailSent(const QString &messageId);
@@ -210,6 +186,7 @@ private slots:
 
 private:
     DatabaseManager* _databaseManager;
+    RedisClient* _redisClient;
     QTimer* _cleanupTimer;
     SmtpClient* _smtpClient;
     
@@ -221,14 +198,8 @@ private:
     bool _useTLS;
     bool _initialized;
     
-    // 频率限制配置
-    int _sendInterval;      // 发送间隔（秒）
-    int _maxPerHour;        // 每小时最大发送数
-    int _codeExpiration;    // 验证码有效期（分钟）
-    
-    // 发送历史记录（内存缓存）
-    QMap<QString, QDateTime> _lastSendTime;
-    QMap<QString, QList<QDateTime>> _sendHistory;
+    // 验证码有效期（分钟）
+    int _codeExpiration;
 };
 
 #endif // EMAILSERVICE_H

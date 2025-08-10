@@ -1,0 +1,213 @@
+# QKChat 项目开发规范
+
+基于Qt6 + C++ + QML的即时通讯应用开发规范文档
+
+## 1. 开发环境和技术栈
+
+### 核心技术栈
+- **开发框架**: Qt6.5+ (C++17标准)
+- **UI框架**: QML + Qt Quick Controls
+- **数据库**: MySQL 8.0+ (服务端), SQLite (客户端)
+- **缓存系统**: Redis 6.0+ (服务端)
+- **加密库**: OpenSSL 3.0+
+- **构建系统**: CMake 3.16+
+- **编译器**: MinGW (Windows), GCC/Clang (Linux/macOS)
+
+### 开发环境要求
+- Qt Creator 或 Visual Studio Code + Qt插件
+- Qt6.5+ SDK完整安装
+- MySQL Server 8.0+ 数据库服务
+- Redis Server 6.0+ 缓存服务
+- OpenSSL开发库和运行时
+- Git版本控制系统
+
+### 项目架构
+```
+QKChat/
+├── Client/                 # 客户端项目
+│   ├── main.cpp           # 应用程序入口
+│   ├── Main.qml           # 主界面文件
+│   ├── qml/               # QML界面组件
+│   │   ├── LoginPage.qml
+│   │   ├── RegisterPage.qml
+│   │   └── components/    # 自定义组件
+│   └── src/               # C++源代码
+│       ├── auth/          # 认证模块
+│       ├── models/        # 数据模型
+│       └── utils/         # 工具类
+└── Server/                # 服务端项目
+    ├── main.cpp           # 服务器入口
+    ├── mainwindow.ui      # 管理界面
+    └── src/               # C++源代码
+        ├── auth/          # 认证服务
+        ├── network/       # 网络通信
+        ├── database/      # 数据库管理
+        └── utils/         # 工具模块
+```
+
+## 2. 编码规范
+
+### C++ 编码规范
+
+#### 命名约定
+- **类名**: PascalCase命名 (AuthManager, DatabaseManager, NetworkClient)
+- **函数名**: camelCase命名 (connectToServer, handleMessage, processRequest)
+- **变量名**: camelCase命名 (userId, connectionState, isConnected)
+- **私有成员**: 下划线前缀 (_database, _tcpServer, _networkClient)
+- **常量**: UPPER_SNAKE_CASE (SESSION_SECRET, MAX_CONNECTIONS, DEFAULT_PORT)
+- **枚举类型**: PascalCase (MessageType, ConnectionState, AuthResult)
+
+#### 文件组织规范
+- 头文件使用.h扩展名，包含类声明和公共接口
+- 实现文件使用.cpp扩展名，包含具体实现逻辑
+- 头文件保护使用#pragma once或传统的#ifndef方式
+- 包含顺序：系统头文件 → Qt框架头文件 → 项目自定义头文件
+
+#### 代码风格要求
+- 使用4个空格缩进，不使用Tab字符
+- 左大括号不换行，右大括号单独一行
+- 函数参数过多时每行一个参数，对齐排列
+- 类的public、private、protected区域明确分隔
+- 每个函数前添加简洁的功能说明注释
+
+#### 错误处理机制
+- 优先使用异常处理机制处理错误情况
+- 对Qt API调用进行返回值检查
+- 所有错误和异常必须记录到日志系统
+- 向用户提供友好易懂的错误提示信息
+
+### QML 编码规范
+
+#### 命名约定
+- **文件名**: PascalCase命名 (LoginPage.qml, CustomButton.qml, MessageDialog.qml)
+- **组件ID**: camelCase命名 (loginButton, passwordField, errorMessage)
+- **属性名**: camelCase命名 (isLoading, errorText, connectionState)
+- **信号名**: on前缀+PascalCase (onLoginClicked, onTextChanged, onConnectionLost)
+
+#### 代码组织
+- 属性声明在组件顶部，按类型分组
+- 信号定义紧跟属性声明
+- 子组件按层次结构组织
+- 函数定义放在组件底部
+- 使用适当的锚点和布局管理器
+
+#### 样式和主题
+- 统一使用ThemeManager管理颜色和样式
+- 支持浅色和深色主题切换
+- 响应式设计适配不同屏幕尺寸
+- 使用自定义组件保持界面一致性
+
+## 3. 线程安全
+
+### Qt线程模型
+- **主线程**: 负责UI操作和QML界面更新，不能阻塞
+- **工作线程**: 处理数据库操作、网络通信、文件I/O等耗时任务
+- **信号槽机制**: Qt推荐的跨线程通信方式，类型安全
+
+### 线程安全实践
+
+#### 数据库操作线程安全
+- 每个线程使用独立的数据库连接
+- 使用QMutex保护共享的数据库资源
+- 数据库操作在工作线程中执行，结果通过信号返回主线程
+- 避免在多线程间共享QSqlQuery对象
+
+#### 网络操作线程安全
+- 网络I/O操作使用Qt的异步API
+- 使用QMutex保护发送队列和接收缓冲区
+- 连接状态变化通过信号通知相关组件
+- 避免在回调函数中直接操作UI组件
+
+#### 共享数据保护
+- 使用QMutex保护临界区资源
+- 读多写少场景使用QReadWriteLock优化性能
+- 简单原子操作使用QAtomicInt等原子类型
+- 避免在多线程间直接传递Qt对象指针
+
+### 线程间通信
+- 优先使用Qt的信号槽机制进行线程间通信
+- 跨线程连接使用Qt::QueuedConnection确保线程安全
+- 复杂数据通过QSharedPointer或值拷贝传递
+- 避免使用全局变量进行线程间数据共享
+
+## 4. 指针安全
+
+### 智能指针使用
+- 优先使用std::unique_ptr管理独占资源
+- 共享资源使用std::shared_ptr和std::weak_ptr
+- 避免使用裸指针进行内存管理
+- 使用std::make_unique和std::make_shared创建智能指针
+
+### Qt对象内存管理
+- 充分利用Qt的父子对象关系自动管理内存
+- QObject派生类优先指定parent参数
+- 使用QPointer处理可能被删除的QObject指针
+- 避免手动delete有parent的QObject
+
+### 指针安全检查
+- 使用前必须检查指针是否为空
+- 使用QPointer的isNull()方法检查对象有效性
+- 避免悬挂指针，及时将指针设为nullptr
+- 使用RAII原则管理资源生命周期
+
+### 资源管理
+- 遵循RAII原则，资源获取即初始化
+- 使用作用域管理资源生命周期
+- 异常安全的资源管理，确保资源正确释放
+- 避免资源泄漏和重复释放
+
+## 5. 项目特定规范
+
+### 日志记录规范
+- 使用统一的Logger类进行日志记录
+- 日志级别：INFO（信息）、WARNING（警告）、ERROR（错误）、CRITICAL（严重错误）
+- 日志格式包含时间戳、级别、模块、函数名、行号
+- 敏感信息（密码、令牌）不记录到日志中
+
+### 错误处理规范
+- 网络通信错误统一使用JSON格式响应
+- 错误响应包含request_id、action、error_code、error_message字段
+- 用户界面显示友好的中文错误提示
+- 系统错误详细信息记录到日志文件
+
+### 配置管理规范
+- 使用ConfigManager统一管理所有配置项
+- 配置文件使用JSON格式，支持环境变量覆盖
+- 敏感配置（数据库密码、API密钥）使用环境变量
+- 配置变更支持热重载，无需重启服务
+
+### 国际化支持
+- C++代码中使用tr()函数标记需要翻译的字符串
+- QML代码中使用qsTr()函数标记需要翻译的文本
+- 提供中文和英文两种语言支持
+- 界面文本支持动态语言切换
+
+### 安全规范
+- 用户密码使用盐值哈希存储，不存储明文
+- 网络通信支持SSL/TLS加密
+- 输入数据进行严格验证和过滤
+- 会话令牌定期更新，防止会话劫持
+
+## 6. 代码质量保证
+
+### 提交前检查清单
+- 内存泄漏检查通过（使用Valgrind或类似工具）
+- 线程安全检查，无竞态条件
+- 异常处理覆盖所有可能的错误情况
+- 日志记录适当，便于问题排查
+- 代码格式符合项目规范
+- 函数和类注释清晰完整
+
+### 性能优化考虑
+- 避免不必要的对象拷贝，使用const引用传参
+- 数据库查询使用索引，避免全表扫描
+- 网络请求合理批处理，减少往返次数
+- UI更新频率控制，避免过度刷新
+- 内存使用监控，及时释放不需要的资源
+
+### 代码审查要点
+- 架构设计是否合理，模块职责是否清晰
+- 接口设计是否简洁，易于使用和测试
+- 错误处理是否完善，用户体验是否友好
+- 性能是否满足要求，是否存在性能瓶颈
+- 安全性是否充分考虑，是否存在安全漏洞

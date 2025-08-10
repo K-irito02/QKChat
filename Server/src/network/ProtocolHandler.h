@@ -4,8 +4,12 @@
 #include <QObject>
 #include <QJsonObject>
 #include <QJsonDocument>
+#include <QSet>
+#include <QTimer>
+#include <QMutex>
 #include "../auth/UserService.h"
 #include "../auth/EmailService.h"
+#include "../auth/VerificationCodeManager.h"
 #include "../database/RedisClient.h"
 
 /**
@@ -32,7 +36,7 @@ public:
     };
     Q_ENUM(MessageType)
 
-    explicit ProtocolHandler(QObject *parent = nullptr);
+    explicit ProtocolHandler(EmailService *emailService = nullptr, QObject *parent = nullptr);
     ~ProtocolHandler();
     
     /**
@@ -174,10 +178,22 @@ private:
      */
     bool validateSessionToken(qint64 userId, const QString &token);
 
+public:
+    /**
+     * @brief 获取用户服务实例
+     * @return 用户服务实例
+     */
+    UserService* userService() const { return _userService; }
+
 private:
     UserService* _userService;
     EmailService* _emailService;
     RedisClient* _redisClient;
+    
+    // 请求去重机制
+    QSet<QString> _processedRequests;  // 已处理的请求ID集合
+    QMutex _requestMutex;              // 请求处理互斥锁
+    QTimer* _cleanupTimer;             // 定期清理过期请求ID的定时器
 };
 
 #endif // PROTOCOLHANDLER_H

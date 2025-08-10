@@ -53,18 +53,7 @@ QString Crypto::generateRandomString(int length, bool includeSymbols)
     return result;
 }
 
-QString Crypto::generateVerificationCode(int length)
-{
-    QString code;
-    code.reserve(length);
-    
-    for (int i = 0; i < length; ++i) {
-        int digit = QRandomGenerator::global()->bounded(10);
-        code.append(QString::number(digit));
-    }
-    
-    return code;
-}
+
 
 QString Crypto::md5Hash(const QByteArray &data)
 {

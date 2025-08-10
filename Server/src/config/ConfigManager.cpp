@@ -10,6 +10,7 @@
 
 // 静态成员初始化
 ConfigManager* ConfigManager::s_instance = nullptr;
+QMutex ConfigManager::s_instanceMutex;
 
 ConfigManager::ConfigManager(QObject *parent)
     : QObject(parent)
@@ -37,72 +38,118 @@ ConfigManager::~ConfigManager()
 
 ConfigManager* ConfigManager::instance()
 {
+    // 双重检查锁定模式，确保线程安全
     if (!s_instance) {
-        s_instance = new ConfigManager();
+        QMutexLocker locker(&s_instanceMutex);
+        if (!s_instance) {
+            s_instance = new ConfigManager();
+        }
     }
     return s_instance;
 }
 
 bool ConfigManager::loadConfig(const QString &filePath, ConfigFormat format)
 {
-    QMutexLocker locker(&_configMutex);
-    
-    _configFilePath = filePath;
-    _configFormat = format;
-    
+    // 准备日志信息和文件监视信息，避免在锁内调用危险操作
+    QString logMessage;
+    QString validationError;
     bool success = false;
-    
-    if (format == JSON) {
-        success = loadJsonConfig(filePath);
-    } else {
-        success = loadIniConfig(filePath);
-    }
-    
+    bool needUpdateFileWatcher = false;
+    QString watchPath;
+    QJsonObject tempConfig;
+
+    // 第一阶段：在锁内加载配置文件
+    {
+        QMutexLocker locker(&_configMutex);
+
+        _configFilePath = filePath;
+        _configFormat = format;
+
+        if (format == JSON) {
+            success = loadJsonConfig(filePath);
+        } else {
+            success = loadIniConfig(filePath);
+        }
+
+        if (success) {
+            // 保存配置的副本，用于锁外处理
+            tempConfig = _config;
+
+            // 准备文件监视信息，但不在锁内操作QFileSystemWatcher
+            if (_hotReloadEnabled) {
+                needUpdateFileWatcher = true;
+                watchPath = filePath;
+            }
+
+            logMessage = QString("Configuration loaded from: %1").arg(filePath);
+        } else {
+            logMessage = QString("Failed to load configuration from: %1").arg(filePath);
+        }
+    } // 锁在这里释放
+
+    // 第二阶段：在锁外应用环境变量覆盖和验证
     if (success) {
-        // 应用环境变量覆盖
-        applyEnvironmentOverrides();
-        
-        // 验证配置
-        auto validation = validateConfig();
+        // 应用环境变量覆盖（在锁外）
+        applyEnvironmentOverridesUnlocked(tempConfig);
+
+        // 验证配置（在锁外）
+        auto validation = validateConfigUnlocked(tempConfig);
         if (!validation.first) {
-            LOG_WARNING(QString("Configuration validation failed: %1").arg(validation.second));
+            validationError = validation.second;
         }
-        
-        // 启用文件监视
-        if (_hotReloadEnabled) {
-            _fileWatcher->removePaths(_fileWatcher->files());
-            _fileWatcher->addPath(filePath);
+
+        // 第三阶段：将处理后的配置写回
+        {
+            QMutexLocker locker(&_configMutex);
+            _config = tempConfig;
         }
-        
-        LOG_INFO(QString("Configuration loaded from: %1").arg(filePath));
-        emit configReloaded();
-    } else {
-        LOG_ERROR(QString("Failed to load configuration from: %1").arg(filePath));
     }
-    
+
+    // 在锁外操作QFileSystemWatcher，避免信号死锁
+    if (needUpdateFileWatcher) {
+        _fileWatcher->removePaths(_fileWatcher->files());
+        _fileWatcher->addPath(watchPath);
+    }
+
+    // 在锁外记录日志和发射信号
+    if (success) {
+        LOG_INFO(logMessage);
+        if (!validationError.isEmpty()) {
+            LOG_WARNING(QString("Configuration validation failed: %1").arg(validationError));
+        }
+        // 使用QTimer延迟发射信号，确保配置完全稳定
+        QTimer::singleShot(0, this, &ConfigManager::configReloaded);
+    } else {
+        LOG_ERROR(logMessage);
+    }
+
     return success;
 }
 
 bool ConfigManager::saveConfig(const QString &filePath)
 {
-    QMutexLocker locker(&_configMutex);
-    
-    QString targetPath = filePath.isEmpty() ? _configFilePath : filePath;
-    
+    QString targetPath;
     bool success = false;
-    
-    if (_configFormat == JSON) {
-        success = saveJsonConfig(targetPath);
-    } else {
-        success = saveIniConfig(targetPath);
-    }
-    
+
+    {
+        QMutexLocker locker(&_configMutex);
+
+        targetPath = filePath.isEmpty() ? _configFilePath : filePath;
+
+        if (_configFormat == JSON) {
+            success = saveJsonConfig(targetPath);
+        } else {
+            success = saveIniConfig(targetPath);
+        }
+    } // 锁在这里释放
+
+    // 在锁外记录日志
     if (success) {
         LOG_INFO(QString("Configuration saved to: %1").arg(targetPath));
     } else {
         LOG_ERROR(QString("Failed to save configuration to: %1").arg(targetPath));
     }
-    
+
     return success;
 }
 
@@ -117,16 +164,26 @@ bool ConfigManager::reloadConfig()
 
 void ConfigManager::setHotReloadEnabled(bool enabled)
 {
-    QMutexLocker locker(&_configMutex);
-    
-    _hotReloadEnabled = enabled;
-    
-    if (enabled && !_configFilePath.isEmpty()) {
-        _fileWatcher->addPath(_configFilePath);
-    } else {
-        _fileWatcher->removePaths(_fileWatcher->files());
+    bool needUpdateWatcher = false;
+    QString configPath;
+
+    {
+        QMutexLocker locker(&_configMutex);
+        _hotReloadEnabled = enabled;
+        needUpdateWatcher = true;
+        configPath = _configFilePath;
+    } // 锁在这里释放
+
+    // 在锁外操作QFileSystemWatcher
+    if (needUpdateWatcher) {
+        if (enabled && !configPath.isEmpty()) {
+            _fileWatcher->addPath(configPath);
+        } else {
+            _fileWatcher->removePaths(_fileWatcher->files());
+        }
     }
-    
+
+    // 在锁外记录日志
     LOG_INFO(QString("Configuration hot reload %1").arg(enabled ? "enabled" : "disabled"));
 }
 
@@ -175,49 +232,19 @@ QVariant ConfigManager::getValue(const QString &key, const QVariant &defaultValu
 
 void ConfigManager::setValue(const QString &key, const QVariant &value)
 {
-    QMutexLocker locker(&_configMutex);
-    
-    QVariant oldValue = getValue(key);
-    
-    QJsonObject obj;
-    QString finalKey;
-    
-    if (!parseNestedKey(key, obj, finalKey)) {
-        return;
-    }
-    
-    // 转换QVariant到JSON值
-    QJsonValue jsonValue;
-    
-    switch (value.typeId()) {
-        case QMetaType::Bool:
-            jsonValue = value.toBool();
-            break;
-        case QMetaType::Int:
-        case QMetaType::LongLong:
-            jsonValue = value.toLongLong();
-            break;
-        case QMetaType::Double:
-            jsonValue = value.toDouble();
-            break;
-        case QMetaType::QString:
-            jsonValue = value.toString();
-            break;
-        case QMetaType::QStringList: {
-            QJsonArray array;
-            for (const QString &str : value.toStringList()) {
-                array.append(str);
-            }
-            jsonValue = array;
-            break;
-        }
-        default:
-            jsonValue = value.toString();
-            break;
-    }
-    
-    obj[finalKey] = jsonValue;
-    
+    QVariant oldValue;
+
+    {
+        QMutexLocker locker(&_configMutex);
+
+        // 获取旧值，使用无锁版本避免递归锁定
+        oldValue = getValueUnlocked(_config, key);
+
+        // 设置新值，使用无锁版本避免递归锁定
+        setValueUnlocked(_config, key, value);
+    } // 锁在这里释放
+
+    // 在锁外发射信号
     emit configChanged(key, value, oldValue);
 }
 
@@ -254,34 +281,46 @@ QJsonObject ConfigManager::getSection(const QString &section) const
 
 QPair<bool, QString> ConfigManager::validateConfig() const
 {
+    QMutexLocker locker(&_configMutex);
+    return validateConfigUnlocked(_config);
+}
+
+QPair<bool, QString> ConfigManager::validateConfigUnlocked(const QJsonObject &config) const
+{
     // 验证必需的配置项
     QStringList requiredKeys = {
         "server.port",
         "database.host",
         "database.name"
     };
-    
+
     for (const QString &key : requiredKeys) {
-        if (!contains(key)) {
+        if (!containsUnlocked(config, key)) {
             return qMakePair(false, QString("Missing required configuration: %1").arg(key));
         }
     }
-    
+
     // 验证端口范围
-    int serverPort = getValue("server.port", 0).toInt();
+    int serverPort = getValueUnlocked(config, "server.port", 0).toInt();
     if (serverPort <= 0 || serverPort > 65535) {
         return qMakePair(false, "Invalid server port");
     }
-    
-    int dbPort = getValue("database.port", 0).toInt();
+
+    int dbPort = getValueUnlocked(config, "database.port", 0).toInt();
     if (dbPort <= 0 || dbPort > 65535) {
         return qMakePair(false, "Invalid database port");
     }
-    
+
     return qMakePair(true, "");
 }
 
 void ConfigManager::applyEnvironmentOverrides()
+{
+    QMutexLocker locker(&_configMutex);
+    applyEnvironmentOverridesUnlocked(_config);
+}
+
+void ConfigManager::applyEnvironmentOverridesUnlocked(QJsonObject &config)
 {
     // 定义环境变量映射
     QMap<QString, QString> envMappings = {
@@ -300,12 +339,11 @@ void ConfigManager::applyEnvironmentOverrides()
         {"QKCHAT_SMTP_USER", "smtp.username"},
         {"QKCHAT_SMTP_PASS", "smtp.password"}
     };
-    
+
     for (auto it = envMappings.begin(); it != envMappings.end(); ++it) {
         QVariant envValue = getEnvironmentValue(it.key(), it.value());
         if (envValue.isValid()) {
-            setValue(it.value(), envValue);
-    
+            setValueUnlocked(config, it.value(), envValue);
         }
     }
 }
@@ -351,21 +389,25 @@ void ConfigManager::onConfigFileChanged(const QString &path)
 
 void ConfigManager::onReloadTimer()
 {
-    LOG_INFO("Configuration file changed, reloading...");
+    // 使用QTimer延迟记录日志，避免在信号处理中直接调用LOG宏
+    QTimer::singleShot(0, [this]() {
+        LOG_INFO("Configuration file changed, reloading...");
 
-    if (reloadConfig()) {
-        LOG_INFO("Configuration reloaded successfully");
-    } else {
-        LOG_ERROR("Failed to reload configuration");
-        emit configError("Failed to reload configuration file");
-    }
+        if (reloadConfig()) {
+            LOG_INFO("Configuration reloaded successfully");
+        } else {
+            LOG_ERROR("Failed to reload configuration");
+            emit configError("Failed to reload configuration file");
+        }
+    });
 }
 
 bool ConfigManager::loadJsonConfig(const QString &filePath)
 {
+    // 注意：此方法在持有锁的情况下调用，不能直接使用LOG_*宏
+    // 错误信息将由调用者处理
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) {
-        LOG_ERROR(QString("Cannot open config file: %1").arg(filePath));
         return false;
     }
 
@@ -376,12 +418,10 @@ bool ConfigManager::loadJsonConfig(const QString &filePath)
     QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
 
     if (parseError.error != QJsonParseError::NoError) {
-        LOG_ERROR(QString("JSON parse error in config file: %1").arg(parseError.errorString()));
         return false;
     }
 
     if (!doc.isObject()) {
-        LOG_ERROR("Config file must contain a JSON object");
         return false;
     }
 
@@ -394,7 +434,7 @@ bool ConfigManager::loadIniConfig(const QString &filePath)
     QSettings settings(filePath, QSettings::IniFormat);
 
     if (settings.status() != QSettings::NoError) {
-        LOG_ERROR(QString("Cannot load INI config file: %1").arg(filePath));
+        // 注意：此方法在持有锁的情况下调用，错误信息将由调用者处理
         return false;
     }
 
@@ -537,29 +577,180 @@ void ConfigManager::setDefaultConfig()
 
 bool ConfigManager::parseNestedKey(const QString &key, QJsonObject &obj, QString &finalKey) const
 {
+    return parseNestedKeyUnlocked(_config, key, obj, finalKey);
+}
+
+bool ConfigManager::parseNestedKeyUnlocked(const QJsonObject &config, const QString &key, QJsonObject &obj, QString &finalKey) const
+{
     QStringList parts = key.split('.');
     if (parts.isEmpty()) {
         return false;
     }
 
-    obj = _config;
+    obj = config;
 
     for (int i = 0; i < parts.size() - 1; ++i) {
         const QString &part = parts[i];
-        
+
         if (!obj.contains(part)) {
             return false;
         }
-        
+
         if (!obj[part].isObject()) {
             return false;
         }
-        
+
         obj = obj[part].toObject();
     }
 
     finalKey = parts.last();
     return true;
+}
+
+void ConfigManager::setValueUnlocked(QJsonObject &config, const QString &key, const QVariant &value)
+{
+    QJsonObject obj;
+    QString finalKey;
+
+    if (!parseNestedKeyUnlocked(config, key, obj, finalKey)) {
+        return;
+    }
+
+    // 转换QVariant到JSON值
+    QJsonValue jsonValue;
+
+    switch (value.typeId()) {
+        case QMetaType::Bool:
+            jsonValue = value.toBool();
+            break;
+        case QMetaType::Int:
+        case QMetaType::LongLong:
+            jsonValue = value.toLongLong();
+            break;
+        case QMetaType::Double:
+            jsonValue = value.toDouble();
+            break;
+        case QMetaType::QString:
+            jsonValue = value.toString();
+            break;
+        case QMetaType::QStringList: {
+            QJsonArray array;
+            for (const QString &str : value.toStringList()) {
+                array.append(str);
+            }
+            jsonValue = array;
+            break;
+        }
+        default:
+            jsonValue = value.toString();
+            break;
+    }
+
+    // 需要更新嵌套对象
+    updateNestedObject(config, key, jsonValue);
+}
+
+QVariant ConfigManager::getValueUnlocked(const QJsonObject &config, const QString &key, const QVariant &defaultValue) const
+{
+    QJsonObject obj;
+    QString finalKey;
+
+    if (!parseNestedKeyUnlocked(config, key, obj, finalKey)) {
+        return defaultValue;
+    }
+
+    if (!obj.contains(finalKey)) {
+        return defaultValue;
+    }
+
+    QJsonValue value = obj[finalKey];
+
+    // 转换JSON值到QVariant
+    if (value.isBool()) {
+        return value.toBool();
+    } else if (value.isDouble()) {
+        return value.toDouble();
+    } else if (value.isString()) {
+        return value.toString();
+    } else if (value.isArray()) {
+        QStringList list;
+        for (const QJsonValue &val : value.toArray()) {
+            list.append(val.toString());
+        }
+        return list;
+    }
+
+    return defaultValue;
+}
+
+bool ConfigManager::containsUnlocked(const QJsonObject &config, const QString &key) const
+{
+    QJsonObject obj;
+    QString finalKey;
+
+    if (!parseNestedKeyUnlocked(config, key, obj, finalKey)) {
+        return false;
+    }
+
+    return obj.contains(finalKey);
+}
+
+void ConfigManager::updateNestedObject(QJsonObject &config, const QString &key, const QJsonValue &value)
+{
+    QStringList parts = key.split('.');
+    if (parts.isEmpty()) {
+        return;
+    }
+
+    QJsonObject *currentObj = &config;
+
+    // 遍历到倒数第二层
+    for (int i = 0; i < parts.size() - 1; ++i) {
+        const QString &part = parts[i];
+
+        if (!currentObj->contains(part)) {
+            (*currentObj)[part] = QJsonObject();
+        }
+
+        if (!(*currentObj)[part].isObject()) {
+            (*currentObj)[part] = QJsonObject();
+        }
+
+        QJsonObject nestedObj = (*currentObj)[part].toObject();
+        (*currentObj)[part] = nestedObj;
+        currentObj = &nestedObj;
+    }
+
+    // 设置最终值
+    (*currentObj)[parts.last()] = value;
+
+    // 需要重新构建整个路径，因为QJsonObject是值类型
+    rebuildNestedPath(config, key, value);
+}
+
+void ConfigManager::rebuildNestedPath(QJsonObject &config, const QString &key, const QJsonValue &value)
+{
+    QStringList parts = key.split('.');
+    if (parts.isEmpty()) {
+        return;
+    }
+
+    if (parts.size() == 1) {
+        config[parts[0]] = value;
+        return;
+    }
+
+    // 递归重建路径
+    QString firstPart = parts[0];
+    QString remainingPath = parts.mid(1).join('.');
+
+    QJsonObject nestedObj;
+    if (config.contains(firstPart) && config[firstPart].isObject()) {
+        nestedObj = config[firstPart].toObject();
+    }
+
+    rebuildNestedPath(nestedObj, remainingPath, value);
+    config[firstPart] = nestedObj;
 }
 
 QVariant ConfigManager::getEnvironmentValue(const QString &envKey, const QString &configKey) const

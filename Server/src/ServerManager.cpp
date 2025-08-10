@@ -7,6 +7,7 @@
 #include <QCoreApplication>
 #include <QHostAddress>
 #include <QFileInfo>
+#include <QTimer>
 
 // 静态成员初始化
 ServerManager* ServerManager::s_instance = nullptr;
@@ -41,109 +42,163 @@ ServerManager* ServerManager::instance()
 
 bool ServerManager::initialize()
 {
-    LOG_INFO("Initializing QKChat Server...");
-
     setServerState(Starting);
 
-    // 初始化OpenSSL库
-    if (!OpenSSLHelper::initializeOpenSSL()) {
-        LOG_ERROR("Failed to initialize OpenSSL library");
-        setServerState(Error);
-        return false;
+    // 首先初始化基本日志系统，避免其他组件初始化时日志调用失败
+    QString basicLogDir = "D:/QT_Learn/Projects/QKChat/Server/logs";
+    QDir().mkpath(basicLogDir);
+    if (!Logger::initialize(basicLogDir, "Server")) {
+        QString relativeLogDir = "logs";
+        QDir().mkpath(relativeLogDir);
+        Logger::initialize(relativeLogDir, "Server");
     }
 
-    // 初始化配置管理器（简化版本）
-    ConfigManager* configManager = ConfigManager::instance();
-    QString configPath = QCoreApplication::applicationDirPath() + "/config/server.json";
-    
-    // 检查配置文件是否存在
-    QFileInfo configFile(configPath);
-    if (!configFile.exists()) {
-        LOG_WARNING(QString("Configuration file not found: %1").arg(configPath));
-        LOG_WARNING("Using default configuration");
-    }
-    
-    if (!configManager->loadConfig(configPath)) {
-        LOG_WARNING("Failed to load configuration file, using defaults");
-    }
+    LOG_INFO("Initializing QKChat Server...");
 
-    // 初始化日志系统
-    QString logDir = configManager->getValue("logging.directory", "").toString();
-    if (logDir.isEmpty()) {
-        logDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/logs";
-    }
-    
-    if (!Logger::initialize(logDir, "Server")) {
-        setServerState(Error);
-        return false;
-    }
+    // 简化初始化流程，先确保基本功能正常
+    try {
+        // 初始化OpenSSL库
+        if (!OpenSSLHelper::initializeOpenSSL()) {
+            LOG_ERROR("Failed to initialize OpenSSL library");
+            setServerState(Error);
+            return false;
+        }
 
-    // 配置日志系统
-    Logger::setLogLevel(static_cast<Logger::LogLevel>(
-        configManager->getValue("logging.level", static_cast<int>(Logger::INFO)).toInt()));
-    Logger::setConsoleOutput(configManager->getValue("logging.console_output", true).toBool());
-    Logger::setJsonFormat(configManager->getValue("logging.json_format", false).toBool());
-    Logger::setMaxFileSize(configManager->getValue("logging.max_file_size", 104857600).toLongLong());
-    Logger::setRetentionDays(configManager->getValue("logging.retention_days", 30).toInt());
+        // 初始化配置管理器
+        LOG_INFO("Creating ConfigManager instance...");
+        ConfigManager* configManager = nullptr;
+        try {
+            configManager = ConfigManager::instance();
+            LOG_INFO("ConfigManager instance created successfully");
+        } catch (const std::exception& e) {
+            LOG_ERROR(QString("Exception creating ConfigManager: %1").arg(e.what()));
+            setServerState(Error);
+            return false;
+        } catch (...) {
+            LOG_ERROR("Unknown exception creating ConfigManager");
+            setServerState(Error);
+            return false;
+        }
 
-    // 初始化证书管理器
-    CertificateManager* certManager = CertificateManager::instance();
-    QString certFile = configManager->getValue("server.cert_file", "").toString();
-    QString keyFile = configManager->getValue("server.key_file", "").toString();
-    
-    // 如果证书路径是相对路径，转换为绝对路径
-    if (!certFile.isEmpty() && !certFile.startsWith("/") && !certFile.contains(":")) {
-        certFile = QCoreApplication::applicationDirPath() + "/" + certFile;
-    }
-    if (!keyFile.isEmpty() && !keyFile.startsWith("/") && !keyFile.contains(":")) {
-        keyFile = QCoreApplication::applicationDirPath() + "/" + keyFile;
-    }
+        QString appDir = QCoreApplication::applicationDirPath();
+        QString configPath = appDir + "/config/server.json";
 
-    if (!certFile.isEmpty() && !keyFile.isEmpty()) {
-        if (!certManager->loadCertificate(certFile, keyFile)) {
-            LOG_WARNING("Failed to load TLS certificate, generating self-signed certificate");
-            if (!certManager->generateSelfSignedCertificate("localhost", "QKChat", "CN", 365)) {
-                LOG_ERROR("Failed to generate self-signed certificate");
+        LOG_INFO(QString("Application directory: %1").arg(appDir));
+        LOG_INFO(QString("Looking for config file at: %1").arg(configPath));
+
+        // 检查配置文件是否存在
+        QFileInfo configFile(configPath);
+        if (!configFile.exists()) {
+            LOG_WARNING(QString("Configuration file not found: %1").arg(configPath));
+            LOG_WARNING("Using default configuration");
+
+            // 尝试其他可能的路径
+            QStringList alternatePaths = {
+                "config/server.json",
+                "../config/server.json",
+                "../../config/server.json",
+                "../../../config/server.json"
+            };
+
+            bool found = false;
+            for (const QString &altPath : alternatePaths) {
+                QFileInfo altFile(altPath);
+                if (altFile.exists()) {
+                    configPath = altFile.absoluteFilePath();
+                    LOG_INFO(QString("Found config file at alternate path: %1").arg(configPath));
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) {
+                LOG_WARNING("No configuration file found in any location, using defaults");
             }
         }
-    } else {
-        LOG_INFO("No TLS certificate configured, generating self-signed certificate");
-        if (!certManager->generateSelfSignedCertificate("localhost", "QKChat", "CN", 365)) {
-            LOG_ERROR("Failed to generate self-signed certificate");
+
+        LOG_INFO("Attempting to load configuration...");
+        if (!configManager->loadConfig(configPath)) {
+            LOG_WARNING("Failed to load configuration file, using defaults");
+        } else {
+            LOG_INFO("Configuration loaded successfully");
         }
-    }
-    
-    // 初始化数据库
-    if (!initializeDatabase()) {
-        LOG_WARNING("Failed to initialize database (optional)");
-        // 数据库是可选的，不影响服务器启动
-    }
-    
-    // 初始化Redis
-    if (!initializeRedis()) {
-        LOG_WARNING("Failed to initialize Redis (optional)");
-        // Redis是可选的，不影响服务器启动
-    }
-    
-    // 初始化邮件服务
-    if (!initializeEmailService()) {
-        LOG_WARNING("Failed to initialize email service (optional)");
-        // 邮件服务是可选的，不影响服务器启动
-    }
-    
-    // 初始化TCP服务器
-    if (!initializeTcpServer()) {
-        LOG_ERROR("Failed to initialize TCP server");
+    } catch (const std::exception& e) {
+        LOG_ERROR(QString("Exception during configuration initialization: %1").arg(e.what()));
+        setServerState(Error);
+        return false;
+    } catch (...) {
+        LOG_ERROR("Unknown exception during configuration initialization");
         setServerState(Error);
         return false;
     }
+
+    // 配置日志系统（从配置文件读取）
+    LOG_INFO("Configuring logger settings...");
+    try {
+        ConfigManager* configManager = ConfigManager::instance();
+        // 配置日志系统
+        Logger::setLogLevel(static_cast<Logger::LogLevel>(
+            configManager->getValue("logging.level", static_cast<int>(Logger::INFO)).toInt()));
+        Logger::setConsoleOutput(configManager->getValue("logging.console_output", true).toBool());
+        LOG_INFO("Logger configuration completed");
+
+    } catch (const std::exception& e) {
+        LOG_ERROR(QString("Exception during logger configuration: %1").arg(e.what()));
+        // 继续执行，不因为日志问题而停止服务器
+    } catch (...) {
+        LOG_ERROR("Unknown exception during logger configuration");
+        // 继续执行，不因为日志问题而停止服务器
+    }
+
+    // 同步初始化关键组件，确保服务器启动前完成
+    if (!initializeDatabase()) {
+        LOG_WARNING("Failed to initialize database (optional)");
+    } else {
+        // 执行用户状态迁移
+        if (_protocolHandler && _protocolHandler->userService()) {
+            if (_protocolHandler->userService()->migrateUserStatuses()) {
+                LOG_INFO("User status migration completed successfully");
+            } else {
+                LOG_WARNING("User status migration failed");
+            }
+        }
+    }
+
+    if (!initializeRedis()) {
+        LOG_WARNING("Failed to initialize Redis (optional)");
+    }
+
+    // 邮件服务是关键组件，必须同步初始化
+    if (!initializeEmailService()) {
+        LOG_ERROR("Failed to initialize email service - verification codes will not work");
+    }
+
+    // 简化证书初始化，异步处理避免阻塞
+    QTimer::singleShot(200, this, &ServerManager::initializeCertificatesAsync);
     
-    LOG_INFO("QKChat Server initialized successfully");
-    
-    // 初始化成功后，将状态设置为Stopped，以便可以启动服务器
-    setServerState(Stopped);
-    
-    return true;
+    // 初始化TCP服务器
+    try {
+        if (!initializeTcpServer()) {
+            LOG_ERROR("Failed to initialize TCP server");
+            setServerState(Error);
+            return false;
+        }
+
+        LOG_INFO("QKChat Server initialized successfully");
+
+        // 初始化成功后，将状态设置为Stopped，以便可以启动服务器
+        setServerState(Stopped);
+
+        return true;
+    } catch (const std::exception& e) {
+        LOG_ERROR(QString("Exception during TCP server initialization: %1").arg(e.what()));
+        setServerState(Error);
+        return false;
+    } catch (...) {
+        LOG_ERROR("Unknown exception during TCP server initialization");
+        setServerState(Error);
+        return false;
+    }
 }
 
 bool ServerManager::startServer(quint16 port)
@@ -163,11 +218,11 @@ bool ServerManager::startServer(quint16 port)
     if (port == 0) {
         port = configManager->getValue("server.port", 8080).toUInt();
     }
-    
+
     _serverPort = port;
-    
+
     LOG_INFO(QString("Starting QKChat Server on port %1...").arg(port));
-    
+
     // 从配置文件读取TLS设置
     bool useTls = configManager->getValue("server.use_tls", true).toBool();
     
@@ -361,7 +416,7 @@ bool ServerManager::initializeRedis()
 bool ServerManager::initializeEmailService()
 {
     _emailService = new EmailService(this);
-    
+
     // 从配置文件读取SMTP配置
     ConfigManager* configManager = ConfigManager::instance();
     QString host = configManager->getValue("smtp.host", "smtp.qq.com").toString();
@@ -369,23 +424,33 @@ bool ServerManager::initializeEmailService()
     QString username = configManager->getValue("smtp.username", "").toString();
     QString password = configManager->getValue("smtp.password", "").toString();
     bool useTls = configManager->getValue("smtp.use_tls", true).toBool();
-    
+
+    LOG_INFO(QString("Initializing EmailService with config: host=%1, port=%2, username=%3, useTls=%4")
+             .arg(host).arg(port).arg(username).arg(useTls ? "true" : "false"));
+
+    if (username.isEmpty() || password.isEmpty()) {
+        LOG_ERROR("SMTP username or password is empty in configuration");
+        return false;
+    }
+
     return _emailService->initialize(host, port, username, password, useTls);
 }
 
 bool ServerManager::initializeTcpServer()
 {
     _tcpServer = new TcpServer(this);
-    _protocolHandler = new ProtocolHandler(this);
-    
+
+    _protocolHandler = new ProtocolHandler(_emailService, this);
+
     // 从配置文件读取TCP服务器配置
     ConfigManager* configManager = ConfigManager::instance();
     int maxClients = configManager->getValue("server.max_clients", 1000).toInt();
     int heartbeatInterval = configManager->getValue("server.heartbeat_interval", 30000).toInt();
-    
+
     // 配置TCP服务器
     _tcpServer->setMaxClients(maxClients);
     _tcpServer->setHeartbeatInterval(heartbeatInterval);
+    _tcpServer->setProtocolHandler(_protocolHandler);
     
     // 连接TCP服务器信号
     connect(_tcpServer, &TcpServer::clientConnected,
@@ -400,4 +465,31 @@ bool ServerManager::initializeTcpServer()
             this, &ServerManager::onProtocolUserRegistered);
     
     return true;
+}
+
+void ServerManager::initializeCertificatesAsync()
+{
+    try {
+        CertificateManager* certManager = CertificateManager::instance();
+
+        LOG_INFO("Initializing TLS certificates using auto-generated self-signed certificate");
+
+        // 直接生成自签名证书，不依赖外部证书文件
+        if (!certManager->generateSelfSignedCertificate("localhost", "QKChat", "CN", 365)) {
+            LOG_ERROR("Failed to generate self-signed certificate");
+        } else {
+            LOG_INFO("Self-signed certificate generated successfully");
+        }
+
+    } catch (const std::exception& e) {
+        LOG_ERROR(QString("Exception during certificate initialization: %1").arg(e.what()));
+    } catch (...) {
+        LOG_ERROR("Unknown exception during certificate initialization");
+    }
+}
+
+void ServerManager::initializeOptionalComponentsAsync()
+{
+    // 这个方法现在为空，因为关键组件已经在主初始化流程中同步初始化了
+    LOG_INFO("Async optional components initialization completed (no additional components)");
 }

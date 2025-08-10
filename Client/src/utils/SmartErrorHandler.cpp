@@ -15,32 +15,41 @@ SmartErrorHandler::~SmartErrorHandler()
 
 bool SmartErrorHandler::handleError(const QString& errorType, const QString& errorMessage)
 {
-    QMutexLocker locker(&_mutex);
-    
-    ErrorType classifiedType = classifyError(errorMessage);
-    QString classifiedTypeStr = errorTypeToString(classifiedType);
-    
-    // 更新错误统计
-    _errorCounts[classifiedTypeStr]++;
-    _lastErrorTime[classifiedTypeStr] = QDateTime::currentMSecsSinceEpoch();
-    
-    LOG_WARNING(QString("Handling error: %1 (classified as: %2, count: %3)")
-                .arg(errorMessage)
-                .arg(classifiedTypeStr)
-                .arg(_errorCounts[classifiedTypeStr]));
-    
-    // 检查是否应该重试
-    bool shouldRetry = shouldRetryErrorType(classifiedType) && 
+    ErrorType classifiedType;
+    QString classifiedTypeStr;
+    bool shouldRetry;
+    int retryDelay;
+
+    // 在锁内快速处理数据
+    {
+        QMutexLocker locker(&_mutex);
+
+        classifiedType = classifyError(errorMessage);
+        classifiedTypeStr = errorTypeToString(classifiedType);
+
+        // 更新错误统计
+        _errorCounts[classifiedTypeStr]++;
+        _lastErrorTime[classifiedTypeStr] = QDateTime::currentMSecsSinceEpoch();
+
+        LOG_WARNING(QString("Handling error: %1 (classified as: %2, count: %3)")
+                    .arg(errorMessage)
+                    .arg(classifiedTypeStr)
+                    .arg(_errorCounts[classifiedTypeStr]));
+
+        // 检查是否应该重试
+        shouldRetry = shouldRetryErrorType(classifiedType) &&
                       _errorCounts[classifiedTypeStr] <= getMaxRetries(classifiedType);
-    
-    int retryDelay = calculateRetryDelay(classifiedType, _errorCounts[classifiedTypeStr]);
-    
-    LOG_INFO(QString("Error handling suggestion: retry=%1, delay=%2ms")
-             .arg(shouldRetry ? "true" : "false")
-             .arg(retryDelay));
-    
+
+        retryDelay = calculateRetryDelay(classifiedType, _errorCounts[classifiedTypeStr]);
+
+        LOG_INFO(QString("Error handling suggestion: retry=%1, delay=%2ms")
+                 .arg(shouldRetry ? "true" : "false")
+                 .arg(retryDelay));
+    } // 锁在这里释放
+
+    // 在锁外发射信号，避免死锁
     emit errorHandlingSuggestion(classifiedTypeStr, shouldRetry, retryDelay);
-    
+
     return shouldRetry;
 }
 

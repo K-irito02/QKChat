@@ -9,6 +9,9 @@
 #include <QMutex>
 #include "ClientHandler.h"
 
+// 前向声明
+class ProtocolHandler;
+
 /**
  * @brief TCP服务器类
  * 
@@ -96,7 +99,13 @@ public:
      * @param maxClients 最大连接数
      */
     void setMaxClients(int maxClients);
-    
+
+    /**
+     * @brief 设置协议处理器
+     * @param protocolHandler 协议处理器实例
+     */
+    void setProtocolHandler(ProtocolHandler *protocolHandler);
+
     /**
      * @brief 获取服务器统计信息
      * @return 统计信息JSON对象
@@ -169,7 +178,8 @@ private:
     QMap<QString, ClientHandler*> _clients;          // 客户端ID -> 客户端处理器
     QMap<qint64, ClientHandler*> _userClients;       // 用户ID -> 客户端处理器
     QTimer* _heartbeatTimer;
-    
+    ProtocolHandler* _protocolHandler;
+
     bool _useTLS;
     QString _certFile;
     QString _keyFile;

@@ -7,6 +7,7 @@
 #include <QDateTime>
 #include "../models/User.h"
 #include "../database/DatabaseManager.h"
+#include "../database/RedisClient.h"
 
 /**
  * @brief 用户服务类
@@ -29,7 +30,9 @@ public:
         UserNotVerified,
         UserDisabled,
         DatabaseError,
-        ValidationError
+        ValidationError,
+        UsernameExists,
+        EmailExists
     };
     Q_ENUM(AuthResult)
 
@@ -39,21 +42,21 @@ public:
     /**
      * @brief 用户登录验证
      * @param username 用户名或邮箱
-     * @param passwordHash 密码哈希
+     * @param password 原始密码
      * @return 认证结果和用户信息
      */
-    QPair<AuthResult, User*> authenticateUser(const QString &username, const QString &passwordHash);
+    QPair<AuthResult, User*> authenticateUser(const QString &username, const QString &password);
     
     /**
      * @brief 用户注册
      * @param username 用户名
      * @param email 邮箱
-     * @param passwordHash 密码哈希
+     * @param password 原始密码
      * @param verificationCode 验证码
      * @return 注册结果和用户信息
      */
     QPair<AuthResult, User*> registerUser(const QString &username, const QString &email, 
-                                         const QString &passwordHash, const QString &verificationCode);
+                                         const QString &password, const QString &verificationCode);
     
     /**
      * @brief 根据ID获取用户
@@ -104,13 +107,7 @@ public:
      */
     bool isEmailExists(const QString &email);
     
-    /**
-     * @brief 验证用户邮箱
-     * @param email 邮箱
-     * @param verificationCode 验证码
-     * @return 验证是否成功
-     */
-    bool verifyEmail(const QString &email, const QString &verificationCode);
+
     
     /**
      * @brief 设置用户状态
@@ -141,6 +138,12 @@ public:
      * @return 描述文本
      */
     static QString getAuthResultDescription(AuthResult result);
+
+    /**
+     * @brief 迁移用户状态，将inactive用户设置为active，未验证邮箱设置为已验证
+     * @return 迁移是否成功
+     */
+    bool migrateUserStatuses();
 
 private:
     /**

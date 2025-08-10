@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QKChat 1.0
 import "components" as Components
 
 /**
@@ -30,6 +29,11 @@ Rectangle {
 
     // 发送验证码
     function sendVerificationCode() {
+        // 防止重复发送
+        if (isSendingCode || countdown > 0) {
+            return
+        }
+
         // 清除邮箱错误
         emailInput.clearError()
 
@@ -53,10 +57,21 @@ Rectangle {
             return
         }
 
+        // 检查连接状态
+        if (!authManager.isConnected) {
+            messageDialog.showError("连接错误", "未连接到服务器，请检查网络连接")
+            return
+        }
+
+        // 设置发送状态
+        isSendingCode = true
+
         if (authManager.sendVerificationCode(email)) {
-            isSendingCode = true
             countdown = 60
             countdownTimer.start()
+        } else {
+            // 发送失败，重置状态
+            isSendingCode = false
         }
     }
 
@@ -113,7 +128,7 @@ Rectangle {
         if (verificationCode === "") {
             verificationCodeInput.setError("请输入验证码")
             hasError = true
-        } else if (verificationCode.length !== 6) {
+        } else if (!validateVerificationCode(verificationCode)) {
             verificationCodeInput.setError("验证码应为6位数字")
             hasError = true
         }
@@ -155,6 +170,14 @@ Rectangle {
         var hasLetter = /[a-zA-Z]/.test(password)
         var hasNumber = /[0-9]/.test(password)
         return hasLetter && hasNumber
+    }
+
+    // 验证验证码格式
+    function validateVerificationCode(code) {
+        // 检查长度是否为6位
+        if (code.length !== 6) return false
+        // 检查是否全为数字
+        return /^[0-9]{6}$/.test(code)
     }
 
     // 主布局
@@ -305,7 +328,8 @@ Rectangle {
                         themeManager: registerPage.themeManager
                         text: countdown > 0 ? countdown + "s" : qsTr("发送验证码")
                         buttonType: "outline"
-                        enabled: !isSendingCode && countdown === 0 && (typeof authManager === "undefined" || !authManager || !authManager.isLoading)
+                        enabled: !isSendingCode && countdown === 0 && 
+                                (typeof authManager !== "undefined" && authManager && authManager.isConnected && !authManager.isLoading)
                         onClicked: sendVerificationCode()
                     }
                 }
@@ -576,6 +600,8 @@ Rectangle {
             if (countdown <= 0) {
                 stop()
                 isSendingCode = false
+                // 确保按钮状态正确
+                sendCodeButton.enabled = true
             }
         }
     }
@@ -598,9 +624,12 @@ Rectangle {
 
         function onVerificationCodeFailed(error) {
             messageDialog.showError("发送失败", error)
+            // 重置发送状态
             isSendingCode = false
             countdownTimer.stop()
             countdown = 0
+            // 重新启用发送按钮
+            sendCodeButton.enabled = true
         }
     }
 

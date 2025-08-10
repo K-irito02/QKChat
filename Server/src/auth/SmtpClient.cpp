@@ -15,9 +15,10 @@ SmtpClient::SmtpClient(QObject *parent)
     , _state(Disconnected)
     , _expectedResponseCode(0)
     , _connectionTimeout(30000)
-    , _maxRetries(3)
+    , _maxRetries(1)
     , _tlsStarted(false)
     , _authenticated(false)
+    , _authStep(0)
 {
     // 创建SSL套接字
     _socket = new QSslSocket(this);
@@ -121,6 +122,7 @@ bool SmtpClient::connectToServer()
     setState(Connecting);
     _tlsStarted = false;
     _authenticated = false;
+    _authStep = 0;
     _serverCapabilities.clear();
     
     // 启动连接超时定时器
@@ -170,6 +172,7 @@ void SmtpClient::onDisconnected()
     setState(Disconnected);
     _tlsStarted = false;
     _authenticated = false;
+    _authStep = 0;
     
     LOG_INFO("Disconnected from SMTP server");
     
@@ -306,12 +309,29 @@ void SmtpClient::handleSmtpResponse(const QString &response)
                 setState(Authenticated);
                 _authenticated = true;
                 LOG_INFO("SMTP authentication successful");
-                
+
                 // 开始处理邮件队列
                 processQueue();
             } else if (responseCode == 334) {
-                // 继续认证过程（BASE64编码的挑战）
-                // 这里简化处理，实际项目中需要处理CRAM-MD5等复杂认证
+                // 继续认证过程
+                if (_authStep == 0) {
+                    // 发送用户名（Base64编码）
+                    QString encodedUsername = base64Encode(_username);
+                    sendCommand(encodedUsername);
+                    _authStep = 1;
+                    _expectedResponseCode = 334;
+                } else if (_authStep == 1) {
+                    // 发送密码（Base64编码）
+                    QString encodedPassword = base64Encode(_password);
+                    sendCommand(encodedPassword);
+                    _authStep = 2;
+                    _expectedResponseCode = 235;
+                }
+            } else {
+                // 认证失败
+                LOG_ERROR(QString("SMTP authentication failed: %1 %2").arg(responseCode).arg(responseText));
+                setState(Disconnected);
+                _socket->disconnectFromHost();
             }
             break;
             
@@ -370,28 +390,11 @@ void SmtpClient::authenticate()
 
     LOG_INFO("Starting SMTP authentication");
     setState(Authenticating);
+    _authStep = 0;  // 开始认证流程
 
     // 使用LOGIN认证方式
     sendCommand("AUTH LOGIN");
     _expectedResponseCode = 334;
-
-    // 等待服务器响应
-    if (_socket->waitForReadyRead(5000)) {
-        if (_lastResponse.startsWith("334")) {
-            // 发送用户名（Base64编码）
-            QString encodedUsername = base64Encode(_username);
-            sendCommand(encodedUsername);
-
-            if (_socket->waitForReadyRead(5000)) {
-                if (_lastResponse.startsWith("334")) {
-                    // 发送密码（Base64编码）
-                    QString encodedPassword = base64Encode(_password);
-                    sendCommand(encodedPassword);
-                    _expectedResponseCode = 235;
-                }
-            }
-        }
-    }
 }
 
 void SmtpClient::sendCurrentEmail()
@@ -457,6 +460,7 @@ void SmtpClient::handleEmailSendingResponse(int responseCode, const QString &res
 
 void SmtpClient::finishCurrentEmail(bool success, const QString &error)
 {
+    
     if (_currentEmail.messageId.isEmpty()) {
         return;
     }
@@ -470,7 +474,8 @@ void SmtpClient::finishCurrentEmail(bool success, const QString &error)
         LOG_ERROR(QString("Email failed: %1 - %2").arg(messageId).arg(error));
 
         // 检查是否需要重试
-        if (_currentEmail.retryCount < _maxRetries) {
+        // 验证码邮件不允许重试，避免用户收到多封验证码邮件
+        if (!_currentEmail.isVerificationCode && _currentEmail.retryCount < _maxRetries) {
             _currentEmail.retryCount++;
             LOG_INFO(QString("Retrying email: %1 (attempt %2/%3)")
                      .arg(messageId).arg(_currentEmail.retryCount).arg(_maxRetries));
@@ -482,6 +487,8 @@ void SmtpClient::finishCurrentEmail(bool success, const QString &error)
             _currentEmail = EmailMessage(); // 清空当前邮件
             _queueTimer->start(5000); // 5秒后重试
             return;
+        } else if (_currentEmail.isVerificationCode) {
+            LOG_WARNING(QString("Verification code email failed, no retry to prevent duplicates: %1").arg(messageId));
         }
 
         emit emailFailed(messageId, error);

@@ -3,15 +3,15 @@
 
 #include <QObject>
 #include <QTcpSocket>
-#include <QSslSocket>
+// #include <QSslSocket>
 #include <QTimer>
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QHostAddress>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
-#include <QSslConfiguration>
-#include <QSslError>
+// #include <QSslConfiguration>
+// #include <QSslError>
 #include <QAbstractSocket>
 #include <QMap>
 #include <QMutex>
@@ -61,22 +61,22 @@ public:
     /**
      * @brief 发送登录请求
      * @param username 用户名或邮箱
-     * @param passwordHash 密码哈希
+     * @param password 原始密码
      * @param rememberMe 是否记住登录
      * @return 请求ID
      */
-    QString sendLoginRequest(const QString &username, const QString &passwordHash, bool rememberMe = false);
+    QString sendLoginRequest(const QString &username, const QString &password, bool rememberMe = false);
     
     /**
      * @brief 发送注册请求
      * @param username 用户名
      * @param email 邮箱
-     * @param passwordHash 密码哈希
+     * @param password 原始密码
      * @param verificationCode 验证码
      * @return 请求ID
      */
     QString sendRegisterRequest(const QString &username, const QString &email, 
-                               const QString &passwordHash, const QString &verificationCode);
+                               const QString &password, const QString &verificationCode);
     
     /**
      * @brief 发送验证码请求
@@ -152,14 +152,14 @@ signals:
      * @brief SSL错误信号
      * @param errors SSL错误列表
      */
-    void sslErrors(const QList<QSslError> &errors);
+    // void sslErrors(const QList<QSslError> &errors);
 
 private slots:
     void onConnected();
     void onDisconnected();
     void onReadyRead();
     void onSocketError(QAbstractSocket::SocketError error);
-    void onSslErrors(const QList<QSslError> &errors);
+    // void onSslErrors(const QList<QSslError> &errors);
     void onConnectionTimeout();
     void onHeartbeatTimeout();
     void onReconnectTimer();
@@ -222,7 +222,7 @@ private:
     void updateNetworkQuality();
 
 private:
-    QSslSocket* _socket;
+    QTcpSocket* _socket;
     ConnectionState _connectionState;
     QString _serverHost;
     quint16 _serverPort;

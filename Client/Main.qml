@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QKChat 1.0
 import "qml/components" as Components
 
 ApplicationWindow {
@@ -10,13 +9,13 @@ ApplicationWindow {
     height: settingsManager.windowHeight
     visible: true
     title: qsTr("QKChat")
-
-
+    
 
     // 连接状态管理
     property bool lastConnectionState: true
     property bool connectionErrorShown: false
     property bool appInitialized: false
+    property bool startupCompleted: false  // 启动是否完全完成
 
     // 防抖定时器
     Timer {
@@ -28,6 +27,45 @@ ApplicationWindow {
                 messageDialog.showError("连接错误", "与服务器的连接已断开")
                 connectionErrorShown = true
             }
+        }
+    }
+
+    // 自动连接定时器
+    Timer {
+        id: autoConnectTimer
+        interval: 500  // 延迟500ms
+        repeat: false
+        onTriggered: {
+            // 尝试自动连接到服务器
+            if (settingsManager.autoConnect && authManager && !authManager.isConnected) {
+                try {
+                    authManager.connectToServer()
+                } catch (e) {
+                    // 启动期间静默处理连接错误
+                }
+            }
+            
+            // 启动自动登录定时器
+            autoLoginTimer.start()
+        }
+    }
+
+    // 自动登录定时器
+    Timer {
+        id: autoLoginTimer
+        interval: 200
+        repeat: false
+        onTriggered: {
+            if (settingsManager.rememberPassword && settingsManager.savedUsername !== "") {
+                try {
+                    authManager.tryAutoLogin()
+                } catch (e) {
+                    // 静默处理自动登录错误
+                }
+            }
+            
+            // 完成启动流程，显示登录界面
+            completeStartup()
         }
     }
 
@@ -74,11 +112,56 @@ ApplicationWindow {
         parent: Overlay.overlay
     }
 
+    // 启动画面
+    Rectangle {
+        id: startupScreen
+        anchors.fill: parent
+        color: themeManager ? themeManager.currentTheme.backgroundColor : "#FFFFFF"
+        visible: !startupCompleted
+        
+        Column {
+            anchors.centerIn: parent
+            spacing: 20
+            
+            Text {
+                text: "QKChat"
+                font.pixelSize: 32
+                font.bold: true
+                color: themeManager ? themeManager.currentTheme.textPrimaryColor : "#000000"
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+            
+            Text {
+                text: "正在初始化..."
+                font.pixelSize: 16
+                color: themeManager ? themeManager.currentTheme.textSecondaryColor : "#666666"
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+        }
+    }
+    
     // 页面栈
     StackView {
         id: stackView
         anchors.fill: parent
-        initialItem: loginPageComponent
+        visible: startupCompleted
+        initialItem: null  // 不立即加载，等待启动完成
+
+        // 确保初始项目的透明度和立即显示
+        Component.onCompleted: {
+            if (currentItem) {
+                currentItem.opacity = 1.0
+                currentItem.visible = true
+            }
+        }
+        
+        // 监听项目变化，确保新项目立即可见
+        onCurrentItemChanged: {
+            if (currentItem) {
+                currentItem.opacity = 1.0
+                currentItem.visible = true
+            }
+        }
 
         // 使用自定义转换动画
         pushEnter: Transition {
@@ -86,15 +169,14 @@ ApplicationWindow {
                 property: "x"
                 from: stackView.width
                 to: 0
-                duration: 300
+                duration: 250
                 easing.type: Easing.OutCubic
             }
             PropertyAnimation {
                 property: "opacity"
-                from: 0.0
+                from: 1.0
                 to: 1.0
-                duration: 300
-                easing.type: Easing.OutCubic
+                duration: 0
             }
         }
 
@@ -120,15 +202,14 @@ ApplicationWindow {
                 property: "x"
                 from: -stackView.width * 0.3
                 to: 0
-                duration: 300
+                duration: 250
                 easing.type: Easing.OutCubic
             }
             PropertyAnimation {
                 property: "opacity"
-                from: 0.7
+                from: 1.0
                 to: 1.0
-                duration: 300
-                easing.type: Easing.OutCubic
+                duration: 0
             }
         }
 
@@ -156,16 +237,24 @@ ApplicationWindow {
         Loader {
             source: "qml/LoginPage.qml"
             asynchronous: false  // 同步加载避免显示问题
+            
+            opacity: 1.0
             onLoaded: {
-                item.themeManager = themeManager
-                item.loadingDialog = loadingDialog
-                item.messageDialog = messageDialog
-                item.navigateToRegister.connect(function() {
-                    stackView.push(registerPageComponent)
-                })
-                item.loginSucceeded.connect(function() {
-                    stackView.push(mainPageComponent)
-                })
+                if (item) {
+                    item.opacity = 1.0
+                    item.visible = true
+                    
+                    // 设置属性和连接信号
+                    item.themeManager = themeManager
+                    item.loadingDialog = loadingDialog
+                    item.messageDialog = messageDialog
+                    item.navigateToRegister.connect(function() {
+                        stackView.push(registerPageComponent)
+                    })
+                    item.loginSucceeded.connect(function() {
+                        stackView.push(mainPageComponent)
+                    })
+                }
             }
         }
     }
@@ -275,9 +364,10 @@ ApplicationWindow {
         }
 
         function onLoadingStateChanged(loading) {
-            if (loading) {
+            // 启动期间完全忽略LoadingDialog，避免白雾效果
+            if (startupCompleted && loading) {
                 loadingDialog.show("正在处理请求...")
-            } else {
+            } else if (startupCompleted && !loading) {
                 loadingDialog.hide()
             }
         }
@@ -303,7 +393,6 @@ ApplicationWindow {
         // 检查authManager是否可用（延迟检查，给C++对象时间初始化）
         Qt.callLater(function() {
             if (typeof authManager === "undefined" || authManager === null) {
-                console.warn("AuthManager not available during initialization")
                 messageDialog.showError("初始化错误", "认证管理器不可用，请重启应用程序")
                 return
             }
@@ -318,42 +407,36 @@ ApplicationWindow {
         // 标记应用已初始化
         appInitialized = true
 
-        // 恢复窗口位置（避免重复定义多个 Component.onCompleted）
+        // 恢复窗口位置
         if (settingsManager.windowX >= 0 && settingsManager.windowY >= 0) {
             x = settingsManager.windowX
             y = settingsManager.windowY
         }
 
         // 延迟初始化，避免阻塞UI线程
+        autoConnectTimer.start()
+    }
+    
+    // 完成启动流程的函数
+    function completeStartup() {
+        // 等待一小段时间确保所有异步操作完成
         Qt.callLater(function() {
-            // 尝试自动连接到服务器
-            if (settingsManager.autoConnect && !authManager.isConnected) {
-                try {
-                    var result = authManager.connectToServer()
-                    if (!result) {
-                        console.warn("Failed to connect to server automatically")
-                    }
-                } catch (e) {
-                    console.error("Exception during auto-connect:", e.toString())
-                    messageDialog.showError("连接错误", "无法连接到服务器: " + e.toString())
-                }
-            }
-
-            // 延迟尝试自动登录
-            Qt.callLater(function() {
-                if (settingsManager.rememberPassword && settingsManager.savedUsername !== "") {
-                    try {
-                        var autoLoginResult = authManager.tryAutoLogin()
-                        if (!autoLoginResult) {
-                            console.log("Auto-login not available or failed")
-                        }
-                    } catch (e) {
-                        // 静默处理自动登录错误
-                        console.warn("Auto-login failed:", e.toString())
-                    }
-                }
-            })
+            startupCompleted = true
+            stackView.push(loginPageComponent)
         })
+    }
+    
+    // 处理启动超时的定时器
+    Timer {
+        id: startupTimeoutTimer
+        interval: 3000
+        repeat: false
+        onTriggered: {
+            if (!startupCompleted) {
+                completeStartup()
+            }
+        }
+        Component.onCompleted: start()
     }
 
     // 键盘快捷键处理

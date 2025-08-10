@@ -15,8 +15,8 @@ RedisClient::RedisClient(QObject *parent)
     , _port(6379)
     , _database(0)
     , _isConnected(false)
-    , _connectTimeout(5000)
-    , _commandTimeout(5000)
+    , _connectTimeout(2000)  // 减少连接超时时间，避免阻塞
+    , _commandTimeout(3000)  // 减少命令超时时间
     , _reconnectInterval(10000)
 {
     _socket = new QTcpSocket(this);
@@ -39,9 +39,12 @@ RedisClient::~RedisClient()
 
 RedisClient* RedisClient::instance()
 {
-    QMutexLocker locker(&s_mutex);
+    // 双重检查锁定模式，提高性能
     if (!s_instance) {
-        s_instance = new RedisClient();
+        QMutexLocker locker(&s_mutex);
+        if (!s_instance) {
+            s_instance = new RedisClient();
+        }
     }
     return s_instance;
 }
@@ -342,7 +345,8 @@ RedisClient::Result RedisClient::sendCommand(const QString &command, const QStri
 {
     QMutexLocker locker(&_commandMutex);
 
-    if (!isConnected()) {
+    // 直接检查连接状态，避免调用isConnected()导致递归锁定
+    if (!_isConnected || _socket->state() != QAbstractSocket::ConnectedState) {
         if (!reconnect()) {
             return ConnectionError;
         }
@@ -357,7 +361,11 @@ RedisClient::Result RedisClient::sendCommand(const QString &command, const QStri
         return Error;
     }
 
+    // 释放锁后再进行阻塞等待
+    locker.unlock();
+
     if (!_socket->waitForBytesWritten(_commandTimeout)) {
+        QMutexLocker relocker(&_commandMutex);
         _lastError = "Timeout writing command to Redis";
         logError(_lastError);
         return Timeout;
@@ -368,21 +376,29 @@ RedisClient::Result RedisClient::sendCommand(const QString &command, const QStri
 
 RedisClient::Result RedisClient::readResponse(QString &response, int timeout)
 {
-    QMutexLocker locker(&_commandMutex);
-
+    // 在锁外进行阻塞等待，避免阻塞其他线程
     if (!_socket->waitForReadyRead(timeout)) {
+        QMutexLocker locker(&_commandMutex);
         _lastError = "Timeout reading response from Redis";
         logError(_lastError);
         return Timeout;
     }
 
+    QMutexLocker locker(&_commandMutex);
+
     QByteArray data = _socket->readAll();
+    
+    // 调试：打印原始响应数据
+
 
     if (!parseResponse(data, response)) {
         _lastError = "Failed to parse Redis response";
         logError(_lastError);
         return Error;
     }
+    
+    // 调试：打印解析后的响应
+
 
     return Success;
 }
@@ -393,46 +409,87 @@ bool RedisClient::parseResponse(const QByteArray &data, QString &result)
         return false;
     }
 
-    char type = data[0];
-    QString content = QString::fromUtf8(data.mid(1)).trimmed();
+    // 调试：打印原始数据的十六进制表示
 
+
+    // 处理混合响应（如 "OK\r\n$6\r\n607496"）
+    // 查找最后一个批量字符串响应
+    int lastBulkStringPos = data.lastIndexOf('$');
+    if (lastBulkStringPos > 0) {
+    
+        QByteArray bulkStringData = data.mid(lastBulkStringPos);
+        return parseResponse(bulkStringData, result);
+    }
+
+    char type = data[0];
+    
     switch (type) {
         case '+': // 简单字符串
-            result = content;
-            return true;
+            {
+                QString content = QString::fromUtf8(data.mid(1)).trimmed();
+                result = content;
+            
+                return true;
+            }
 
         case '-': // 错误
-            _lastError = content;
-            logError(_lastError);
-            return false;
+            {
+                QString content = QString::fromUtf8(data.mid(1)).trimmed();
+                _lastError = content;
+                logError(_lastError);
+                return false;
+            }
 
         case ':': // 整数
-            result = content;
-            return true;
+            {
+                QString content = QString::fromUtf8(data.mid(1)).trimmed();
+                result = content;
+            
+                return true;
+            }
 
         case '$': // 批量字符串
-            if (content == "-1") {
-                result = "$-1"; // NULL
-                return true;
-            } else {
-                int length = content.toInt();
-                if (length >= 0) {
-                    // 读取实际字符串内容
-                    QByteArray remaining = data.mid(content.length() + 3); // +1 for type, +2 for \r\n
-                    if (remaining.length() >= length) {
-                        result = QString::fromUtf8(remaining.left(length));
+            {
+                // 找到第一个\r\n，获取长度
+                int firstCRLF = data.indexOf("\r\n");
+                if (firstCRLF == -1) {
+                
+                    return false;
+                }
+                
+                QString lengthStr = QString::fromUtf8(data.mid(1, firstCRLF - 1));
+                int length = lengthStr.toInt();
+                
+            
+                
+                if (length == -1) {
+                    result = "$-1"; // NULL
+                
+                    return true;
+                } else if (length >= 0) {
+                    // 实际字符串从第一个\r\n之后开始
+                    int contentStart = firstCRLF + 2;
+                    if (data.length() >= contentStart + length) {
+                        result = QString::fromUtf8(data.mid(contentStart, length));
+                    
                         return true;
+                    } else {
+                    
                     }
                 }
+                return false;
             }
-            return false;
 
         case '*': // 数组
-            // 简化处理，实际项目中需要完整的数组解析
-            result = content;
-            return true;
+            {
+                QString content = QString::fromUtf8(data.mid(1)).trimmed();
+                result = content;
+            
+                return true;
+            }
 
         default:
+        
             return false;
     }
 }

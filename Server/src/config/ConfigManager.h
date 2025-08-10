@@ -224,17 +224,82 @@ private:
      */
     QVariant getEnvironmentValue(const QString &envKey, const QString &configKey) const;
 
+    /**
+     * @brief 无锁版本的环境变量覆盖
+     * @param config 要修改的配置对象
+     */
+    void applyEnvironmentOverridesUnlocked(QJsonObject &config);
+
+    /**
+     * @brief 无锁版本的配置验证
+     * @param config 要验证的配置对象
+     * @return 验证结果
+     */
+    QPair<bool, QString> validateConfigUnlocked(const QJsonObject &config) const;
+
+    /**
+     * @brief 无锁版本的setValue
+     * @param config 要修改的配置对象
+     * @param key 配置键
+     * @param value 配置值
+     */
+    void setValueUnlocked(QJsonObject &config, const QString &key, const QVariant &value);
+
+    /**
+     * @brief 无锁版本的getValue
+     * @param config 配置对象
+     * @param key 配置键
+     * @param defaultValue 默认值
+     * @return 配置值
+     */
+    QVariant getValueUnlocked(const QJsonObject &config, const QString &key, const QVariant &defaultValue = QVariant()) const;
+
+    /**
+     * @brief 无锁版本的contains
+     * @param config 配置对象
+     * @param key 配置键
+     * @return 是否包含该键
+     */
+    bool containsUnlocked(const QJsonObject &config, const QString &key) const;
+
+    /**
+     * @brief 无锁版本的parseNestedKey
+     * @param config 配置对象
+     * @param key 配置键
+     * @param obj 输出的JSON对象
+     * @param finalKey 输出的最终键
+     * @return 解析是否成功
+     */
+    bool parseNestedKeyUnlocked(const QJsonObject &config, const QString &key, QJsonObject &obj, QString &finalKey) const;
+
+    /**
+     * @brief 更新嵌套对象
+     * @param config 要修改的配置对象
+     * @param key 配置键
+     * @param value 配置值
+     */
+    void updateNestedObject(QJsonObject &config, const QString &key, const QJsonValue &value);
+
+    /**
+     * @brief 重建嵌套路径
+     * @param config 要修改的配置对象
+     * @param key 配置键
+     * @param value 配置值
+     */
+    void rebuildNestedPath(QJsonObject &config, const QString &key, const QJsonValue &value);
+
 private:
     static ConfigManager* s_instance;
-    
+    static QMutex s_instanceMutex;  // 保护单例创建的互斥锁
+
     QJsonObject _config;
     QString _configFilePath;
     ConfigFormat _configFormat;
-    
+
     QFileSystemWatcher* _fileWatcher;
     QTimer* _reloadTimer;
     bool _hotReloadEnabled;
-    
+
     mutable QMutex _configMutex;
 };
 

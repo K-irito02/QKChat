@@ -12,9 +12,10 @@
 // 静态成员初始化
 int ClientHandler::s_clientCounter = 0;
 
-ClientHandler::ClientHandler(qintptr socketDescriptor, bool useTLS, QObject *parent)
+ClientHandler::ClientHandler(qintptr socketDescriptor, ProtocolHandler *protocolHandler, bool useTLS, QObject *parent)
     : QObject(parent)
     , _socket(nullptr)
+    , _protocolHandler(protocolHandler)
     , _userId(-1)
     , _state(Connected)
     , _heartbeatTimeout(60000) // 60秒
@@ -46,12 +47,6 @@ ClientHandler::ClientHandler(qintptr socketDescriptor, bool useTLS, QObject *par
         LOG_ERROR(QString("Failed to set socket descriptor for client %1").arg(_clientId));
         setState(Error);
         return;
-    }
-    
-    // 临时禁用SSL以测试基本连接
-    if (_useTLS) {
-        LOG_WARNING(QString("SSL temporarily disabled for testing client %1 - using plain TCP connection").arg(_clientId));
-        // 不启动SSL加密，直接使用TCP连接
     }
     
 
@@ -268,30 +263,17 @@ void ClientHandler::onSocketError(QAbstractSocket::SocketError error)
 void ClientHandler::onSslErrors(const QList<QSslError> &errors)
 {
     QStringList errorStrings;
-    QStringList errorDetails;
     
     for (const QSslError &error : errors) {
         QString errorStr = error.errorString();
         errorStrings << errorStr;
-        
-        // 记录详细的SSL错误信息
-        QString detail = QString("SSL Error for client %1: %2 (Code: %3)")
-                        .arg(_clientId)
-                        .arg(errorStr)
-                        .arg(static_cast<int>(error.error()));
-        errorDetails << detail;
-        LOG_WARNING(detail);
+        LOG_WARNING(QString("SSL Error for client %1: %2").arg(_clientId).arg(errorStr));
     }
     
     QString errorString = errorStrings.join("; ");
     LOG_WARNING(QString("SSL errors detected for client %1: %2").arg(_clientId).arg(errorString));
     
-    // 记录SSL配置信息以便调试
-    QSslConfiguration config = _socket->sslConfiguration();
-
-    
     // 在生产环境中，应该根据具体的SSL错误决定是否忽略
-    // 这里为了测试方便，忽略所有SSL错误
     _socket->ignoreSslErrors();
 }
 
@@ -374,21 +356,26 @@ void ClientHandler::handleAuthRequest(const QJsonObject &message)
 {
     setState(Authenticating);
 
-    // 创建协议处理器来处理认证请求
-    ProtocolHandler protocolHandler;
+    if (!_protocolHandler) {
+        LOG_ERROR("No ProtocolHandler available for authentication");
+        sendErrorResponse(message["request_id"].toString(), "Server configuration error");
+        setState(Connected);
+        return;
+    }
 
-    // 连接协议处理器的信号
-    connect(&protocolHandler, &ProtocolHandler::userLoggedIn,
+    // 连接协议处理器的信号（每个ClientHandler实例都需要连接）
+    // 使用Qt::UniqueConnection确保不会重复连接
+    connect(_protocolHandler, &ProtocolHandler::userLoggedIn,
             this, [this](qint64 userId, const QString &clientId, const QString &sessionToken) {
                 Q_UNUSED(clientId)
                 Q_UNUSED(sessionToken)
                 _userId = userId;
                 setState(Authenticated);
                 emit authenticated(userId);
-            });
+            }, Qt::UniqueConnection);
 
     // 处理消息并获取响应
-    QJsonObject response = protocolHandler.handleMessage(message, _clientId, peerAddress().toString());
+    QJsonObject response = _protocolHandler->handleMessage(message, _clientId, peerAddress().toString());
 
     // 发送响应
     sendMessage(response);

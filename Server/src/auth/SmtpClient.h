@@ -46,8 +46,9 @@ public:
         QStringList attachments;
         QString messageId;
         int retryCount;
+        bool isVerificationCode;  // 标识是否为验证码邮件
         
-        EmailMessage() : isHtml(false), retryCount(0) {}
+        EmailMessage() : isHtml(false), retryCount(0), isVerificationCode(false) {}
     };
 
     explicit SmtpClient(QObject *parent = nullptr);
@@ -266,6 +267,7 @@ private:
     bool _tlsStarted;
     bool _authenticated;
     QString _serverCapabilities;
+    int _authStep;  // 认证步骤：0=AUTH LOGIN, 1=用户名, 2=密码
 };
 
 #endif // SMTPCLIENT_H

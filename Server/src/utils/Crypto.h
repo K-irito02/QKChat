@@ -47,12 +47,7 @@ public:
      */
     static QString generateRandomString(int length, bool includeSymbols = false);
     
-    /**
-     * @brief 生成数字验证码
-     * @param length 验证码长度，默认6位
-     * @return 数字验证码
-     */
-    static QString generateVerificationCode(int length = 6);
+
     
     /**
      * @brief 生成会话令牌

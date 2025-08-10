@@ -1,4 +1,5 @@
 #include "EmailService.h"
+#include "VerificationCodeManager.h"
 #include "SmtpClient.h"
 #include "../utils/Logger.h"
 #include "../utils/Crypto.h"
@@ -9,15 +10,15 @@
 #include <QProcess>
 #include <QStandardPaths>
 #include <QDir>
+#include <QUuid>
 
 EmailService::EmailService(QObject *parent)
     : QObject(parent)
     , _databaseManager(DatabaseManager::instance())
+    , _redisClient(RedisClient::instance())
     , _smtpPort(587)
     , _useTLS(true)
     , _initialized(false)
-    , _sendInterval(60)
-    , _maxPerHour(10)
     , _codeExpiration(5)
 {
     // 创建SMTP客户端
@@ -63,7 +64,9 @@ bool EmailService::initialize(const QString &smtpServer, int smtpPort,
     }
 
     // 配置SMTP客户端
-    _smtpClient->configure(_smtpServer, _smtpPort, _username, _password, _useTLS, true);
+    // 端口465使用直接SSL连接，端口587使用STARTTLS
+    bool useStartTls = (_smtpPort == 587);
+    _smtpClient->configure(_smtpServer, _smtpPort, _username, _password, _useTLS, useStartTls);
     _smtpClient->setMaxRetries(3);
     _smtpClient->setConnectionTimeout(30000);
 
@@ -88,30 +91,43 @@ EmailService::SendResult EmailService::sendVerificationCode(const QString &email
         return InvalidEmail;
     }
     
-    // 检查发送频率限制
-    if (isRateLimited(email)) {
-        LOG_WARNING(QString("Rate limited for email: %1").arg(email));
-        return RateLimited;
+    // 使用 VerificationCodeManager 生成并保存验证码（包含频率限制）
+    VerificationCodeManager* codeManager = VerificationCodeManager::instance();
+    if (!codeManager) {
+        LOG_ERROR("VerificationCodeManager not available");
+        return DatabaseError;
     }
     
-    // 生成验证码
-    QString code = generateVerificationCode();
-    
-    // 保存验证码到数据库
-    if (!saveVerificationCode(email, code, codeType)) {
-        LOG_ERROR(QString("Failed to save verification code for email: %1").arg(email));
+    QString code = codeManager->generateAndSaveCode(email, static_cast<VerificationCodeManager::CodeType>(codeType));
+    if (code.isEmpty()) {
+        LOG_ERROR(QString("Failed to generate verification code for email: %1").arg(email));
         return DatabaseError;
+    }
+    
+    return sendVerificationCode(email, code, codeType);
+}
+
+EmailService::SendResult EmailService::sendVerificationCode(const QString &email, const QString &code, CodeType codeType)
+{
+    if (!_initialized) {
+        LOG_ERROR("Email service not initialized");
+        return ConfigError;
+    }
+    
+    // 验证邮箱格式
+    if (!Validator::isValidEmail(email)) {
+        LOG_WARNING(QString("Invalid email format: %1").arg(email));
+        return InvalidEmail;
     }
     
     // 获取邮件内容
     QString subject = getEmailSubject(codeType);
     QString content = getEmailTemplate(codeType, code);
     
-    // 发送邮件
-    bool success = sendEmailInternal(email, subject, content, true);
+    // 发送验证码邮件
+    bool success = sendVerificationCodeEmail(email, subject, content, true);
     
-    // 记录发送历史
-    recordSendHistory(email, success);
+
     
     if (success) {
         LOG_INFO(QString("Verification code sent successfully to: %1").arg(email));
@@ -124,38 +140,7 @@ EmailService::SendResult EmailService::sendVerificationCode(const QString &email
     }
 }
 
-bool EmailService::verifyCode(const QString &email, const QString &code, CodeType codeType)
-{
-    if (!Validator::isValidEmail(email) || !Validator::isValidVerificationCode(code)) {
-        return false;
-    }
-    
-    QString sql = R"(
-        SELECT id FROM verification_codes 
-        WHERE email = ? AND code = ? AND type = ? AND expires_at > NOW() AND used_at IS NULL
-        ORDER BY created_at DESC LIMIT 1
-    )";
-    
-    QSqlQuery query = _databaseManager->executeQuery(sql, {email, code, codeTypeToString(codeType)});
-    
-    if (query.lastError().isValid()) {
-        LOG_ERROR(QString("Database error verifying code: %1").arg(query.lastError().text()));
-        return false;
-    }
-    
-    if (query.next()) {
-        // 标记验证码为已使用
-        qint64 codeId = query.value(0).toLongLong();
-        QString updateSql = "UPDATE verification_codes SET used_at = NOW() WHERE id = ?";
-        _databaseManager->executeUpdate(updateSql, {codeId});
-        
-        LOG_INFO(QString("Verification code verified successfully for email: %1").arg(email));
-        return true;
-    }
-    
-    LOG_WARNING(QString("Invalid or expired verification code for email: %1").arg(email));
-    return false;
-}
+
 
 EmailService::SendResult EmailService::sendCustomEmail(const QString &email, const QString &subject, 
                                                        const QString &content, bool isHtml)
@@ -168,12 +153,7 @@ EmailService::SendResult EmailService::sendCustomEmail(const QString &email, con
         return InvalidEmail;
     }
     
-    if (isRateLimited(email)) {
-        return RateLimited;
-    }
-    
     bool success = sendEmailInternal(email, subject, content, isHtml);
-    recordSendHistory(email, success);
     
     if (success) {
         emit emailSent(email, Success);
@@ -184,10 +164,7 @@ EmailService::SendResult EmailService::sendCustomEmail(const QString &email, con
     }
 }
 
-bool EmailService::isRateLimited(const QString &email)
-{
-    return !checkSendFrequency(email);
-}
+
 
 QString EmailService::getSendResultDescription(SendResult result)
 {
@@ -211,14 +188,7 @@ QString EmailService::getSendResultDescription(SendResult result)
     }
 }
 
-void EmailService::setRateLimit(int intervalSeconds, int maxPerHour)
-{
-    _sendInterval = intervalSeconds;
-    _maxPerHour = maxPerHour;
-    
-    LOG_INFO(QString("Email rate limit updated: %1s interval, %2 per hour")
-             .arg(intervalSeconds).arg(maxPerHour));
-}
+
 
 void EmailService::setCodeExpiration(int minutes)
 {
@@ -236,31 +206,6 @@ void EmailService::cleanup()
     if (deleted > 0) {
         LOG_INFO(QString("Cleaned up %1 expired verification codes").arg(deleted));
     }
-    
-    // 清理内存中的发送历史（保留最近24小时）
-    QDateTime cutoff = QDateTime::currentDateTime().addSecs(-86400);
-    
-    for (auto it = _sendHistory.begin(); it != _sendHistory.end();) {
-        QList<QDateTime>& history = it.value();
-        history.erase(std::remove_if(history.begin(), history.end(),
-                                   [cutoff](const QDateTime& dt) { return dt < cutoff; }),
-                     history.end());
-        
-        if (history.isEmpty()) {
-            it = _sendHistory.erase(it);
-        } else {
-            ++it;
-        }
-    }
-    
-    // 清理最后发送时间记录
-    for (auto it = _lastSendTime.begin(); it != _lastSendTime.end();) {
-        if (it.value() < cutoff) {
-            it = _lastSendTime.erase(it);
-        } else {
-            ++it;
-        }
-    }
 }
 
 void EmailService::onCleanupTimer()
@@ -268,30 +213,9 @@ void EmailService::onCleanupTimer()
     cleanup();
 }
 
-QString EmailService::generateVerificationCode()
-{
-    return Crypto::generateVerificationCode(6);
-}
 
-bool EmailService::saveVerificationCode(const QString &email, const QString &code, CodeType codeType)
-{
-    QString sql = R"(
-        INSERT INTO verification_codes (email, code, type, expires_at, created_at)
-        VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? MINUTE), NOW())
-    )";
 
-    QVariantList params = {email, code, codeTypeToString(codeType), _codeExpiration};
 
-    int result = _databaseManager->executeUpdate(sql, params);
-
-    if (result > 0) {
-    
-        return true;
-    } else {
-        LOG_ERROR(QString("Failed to save verification code: %1").arg(_databaseManager->lastError()));
-        return false;
-    }
-}
 
 QString EmailService::getEmailTemplate(CodeType codeType, const QString &code)
 {
@@ -356,7 +280,7 @@ QString EmailService::getEmailTemplate(CodeType codeType, const QString &code)
 
         <div class="footer">
             <p>此邮件由QKChat系统自动发送，请勿回复。</p>
-            <p>&copy; 2024 QKChat. All rights reserved.</p>
+            <p>&copy; 2025 QKChat. All rights reserved.</p>
         </div>
     </div>
 </body>
@@ -380,56 +304,9 @@ QString EmailService::getEmailSubject(CodeType codeType)
     }
 }
 
-void EmailService::recordSendHistory(const QString &email, bool success)
-{
-    QDateTime now = QDateTime::currentDateTime();
 
-    // 记录最后发送时间
-    _lastSendTime[email] = now;
 
-    // 记录发送历史
-    if (!_sendHistory.contains(email)) {
-        _sendHistory[email] = QList<QDateTime>();
-    }
-    _sendHistory[email].append(now);
 
-    // 保持历史记录在合理范围内（最多保留最近100次）
-    if (_sendHistory[email].size() > 100) {
-        _sendHistory[email].removeFirst();
-    }
-}
-
-bool EmailService::checkSendFrequency(const QString &email)
-{
-    QDateTime now = QDateTime::currentDateTime();
-
-    // 检查发送间隔
-    if (_lastSendTime.contains(email)) {
-        QDateTime lastSend = _lastSendTime[email];
-        if (lastSend.secsTo(now) < _sendInterval) {
-            return false; // 发送间隔太短
-        }
-    }
-
-    // 检查每小时发送次数
-    if (_sendHistory.contains(email)) {
-        QDateTime oneHourAgo = now.addSecs(-3600);
-        QList<QDateTime>& history = _sendHistory[email];
-
-        int recentCount = 0;
-        for (const QDateTime& sendTime : history) {
-            if (sendTime > oneHourAgo) {
-                recentCount++;
-            }
-        }
-
-        if (recentCount >= _maxPerHour) {
-            return false; // 每小时发送次数超限
-        }
-    }
-
-    return true;
-}
 
 bool EmailService::sendEmailInternal(const QString &email, const QString &subject,
                                     const QString &content, bool isHtml)
@@ -453,19 +330,39 @@ bool EmailService::sendEmailInternal(const QString &email, const QString &subjec
     }
 }
 
-QString EmailService::codeTypeToString(CodeType codeType)
+bool EmailService::sendVerificationCodeEmail(const QString &email, const QString &subject,
+                                           const QString &content, bool isHtml)
 {
-    switch (codeType) {
-        case Registration:
-            return "registration";
-        case PasswordReset:
-            return "password_reset";
-        case EmailChange:
-            return "email_change";
-        default:
-            return "registration";
+    if (!_initialized) {
+        LOG_ERROR("Email service not initialized");
+        return false;
+    }
+
+    LOG_INFO(QString("Sending verification code email to: %1").arg(email));
+
+    // 创建验证码邮件消息
+    SmtpClient::EmailMessage message;
+    message.from = _username;
+    message.fromName = "QKChat Server";
+    message.to = email;
+    message.subject = subject;
+    message.body = content;
+    message.isHtml = isHtml;
+    message.isVerificationCode = true;
+    message.messageId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+
+    QString messageId = _smtpClient->sendEmail(message);
+
+    if (!messageId.isEmpty()) {
+        LOG_INFO(QString("Verification code email queued for sending: %1").arg(messageId));
+        return true;
+    } else {
+        LOG_ERROR("Failed to queue verification code email for sending");
+        return false;
     }
 }
+
+
 
 void EmailService::onEmailSent(const QString &messageId)
 {

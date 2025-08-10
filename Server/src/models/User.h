@@ -29,12 +29,13 @@ public:
     QString salt() const { return _salt; }
     QString avatarUrl() const { return _avatarUrl; }
     QString status() const { return _status; }
-    QString theme() const { return _theme; }
-    bool isVerified() const { return _isVerified; }
-    bool isActive() const { return _isActive; }
+    QString bio() const { return _bio; }
+    bool isEmailVerified() const { return _emailVerified; }
+    QString verificationCode() const { return _verificationCode; }
+    QDateTime verificationExpires() const { return _verificationExpires; }
+    QDateTime lastOnline() const { return _lastOnline; }
     QDateTime createdAt() const { return _createdAt; }
     QDateTime updatedAt() const { return _updatedAt; }
-    QDateTime lastLogin() const { return _lastLogin; }
     
     // Setter methods
     void setId(qint64 id) { _id = id; }
@@ -45,12 +46,13 @@ public:
     void setSalt(const QString &salt) { _salt = salt; }
     void setAvatarUrl(const QString &avatarUrl) { _avatarUrl = avatarUrl; }
     void setStatus(const QString &status) { _status = status; }
-    void setTheme(const QString &theme) { _theme = theme; }
-    void setIsVerified(bool isVerified) { _isVerified = isVerified; }
-    void setIsActive(bool isActive) { _isActive = isActive; }
+    void setBio(const QString &bio) { _bio = bio; }
+    void setEmailVerified(bool emailVerified) { _emailVerified = emailVerified; }
+    void setVerificationCode(const QString &verificationCode) { _verificationCode = verificationCode; }
+    void setVerificationExpires(const QDateTime &verificationExpires) { _verificationExpires = verificationExpires; }
+    void setLastOnline(const QDateTime &lastOnline) { _lastOnline = lastOnline; }
     void setCreatedAt(const QDateTime &createdAt) { _createdAt = createdAt; }
     void setUpdatedAt(const QDateTime &updatedAt) { _updatedAt = updatedAt; }
-    void setLastLogin(const QDateTime &lastLogin) { _lastLogin = lastLogin; }
     
     /**
      * @brief 从JSON对象加载用户数据
@@ -101,9 +103,9 @@ public:
     void setPassword(const QString &password);
     
     /**
-     * @brief 更新最后登录时间为当前时间
+     * @brief 更新最后在线时间为当前时间
      */
-    void updateLastLogin();
+    void updateLastOnline();
     
     /**
      * @brief 获取用户显示名称（优先显示名，否则用户名）
@@ -116,6 +118,18 @@ public:
      * @return 是否可以登录
      */
     bool canLogin() const;
+
+    /**
+     * @brief 检查用户是否已验证邮箱
+     * @return 是否已验证邮箱
+     */
+    bool isVerified() const { return _emailVerified; }
+
+    /**
+     * @brief 检查用户是否处于活跃状态
+     * @return 是否活跃
+     */
+    bool isActive() const { return _status == "active"; }
 
 private:
     /**
@@ -141,12 +155,13 @@ private:
     QString _salt;
     QString _avatarUrl;
     QString _status;
-    QString _theme;
-    bool _isVerified;
-    bool _isActive;
+    QString _bio;
+    bool _emailVerified;
+    QString _verificationCode;
+    QDateTime _verificationExpires;
+    QDateTime _lastOnline;
     QDateTime _createdAt;
     QDateTime _updatedAt;
-    QDateTime _lastLogin;
 };
 
 #endif // USER_H

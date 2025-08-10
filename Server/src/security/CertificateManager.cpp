@@ -43,60 +43,73 @@ CertificateManager* CertificateManager::instance()
 
 bool CertificateManager::loadCertificate(const QString &certPath, const QString &keyPath, const QString &keyPassword)
 {
-    QMutexLocker locker(&_certificateMutex);
-    
+    // 在锁外进行文件操作和验证
+    QSslCertificate certificate;
+    QSslKey privateKey;
+    QString errorMessage;
+    bool success = false;
+
     // 加载证书
     QFile certFile(certPath);
     if (!certFile.open(QIODevice::ReadOnly)) {
-        LOG_ERROR(QString("Cannot open certificate file: %1").arg(certPath));
-        emit certificateError(QString("Cannot open certificate file: %1").arg(certPath));
+        errorMessage = QString("Cannot open certificate file: %1").arg(certPath);
+        LOG_ERROR(errorMessage);
+        emit certificateError(errorMessage);
         return false;
     }
-    
-    QSslCertificate certificate(&certFile, QSsl::Pem);
+
+    certificate = QSslCertificate(&certFile, QSsl::Pem);
     certFile.close();
-    
+
     if (certificate.isNull()) {
-        LOG_ERROR(QString("Invalid certificate file: %1").arg(certPath));
-        emit certificateError(QString("Invalid certificate file: %1").arg(certPath));
+        errorMessage = QString("Invalid certificate file: %1").arg(certPath);
+        LOG_ERROR(errorMessage);
+        emit certificateError(errorMessage);
         return false;
     }
-    
+
     // 加载私钥
     QFile keyFile(keyPath);
     if (!keyFile.open(QIODevice::ReadOnly)) {
-        LOG_ERROR(QString("Cannot open private key file: %1").arg(keyPath));
-        emit certificateError(QString("Cannot open private key file: %1").arg(keyPath));
+        errorMessage = QString("Cannot open private key file: %1").arg(keyPath);
+        LOG_ERROR(errorMessage);
+        emit certificateError(errorMessage);
         return false;
     }
     
-    QSslKey privateKey(&keyFile, QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey, keyPassword.toUtf8());
+    privateKey = QSslKey(&keyFile, QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey, keyPassword.toUtf8());
     keyFile.close();
-    
+
     if (privateKey.isNull()) {
-        LOG_ERROR(QString("Invalid private key file: %1").arg(keyPath));
-        emit certificateError(QString("Invalid private key file: %1").arg(keyPath));
+        errorMessage = QString("Invalid private key file: %1").arg(keyPath);
+        LOG_ERROR(errorMessage);
+        emit certificateError(errorMessage);
         return false;
     }
     
-    // 验证证书和私钥匹配
-    // 这里可以添加更复杂的验证逻辑
-    
-    _currentCertificate = certificate;
-    _currentPrivateKey = privateKey;
-    _certificatePath = certPath;
-    _privateKeyPath = keyPath;
-    _keyPassword = keyPassword;
-    
-    // 启用文件监视
+    // 验证证书状态
+    CertificateStatus status = validateCertificate(certificate);
+
+    // 现在在锁内更新成员变量
+    {
+        QMutexLocker locker(&_certificateMutex);
+
+        _currentCertificate = certificate;
+        _currentPrivateKey = privateKey;
+        _certificatePath = certPath;
+        _privateKeyPath = keyPath;
+        _keyPassword = keyPassword;
+        success = true;
+    } // 锁在这里释放
+
+    // 在锁外操作文件监视器
     if (_fileWatchEnabled) {
         _fileWatcher->removePaths(_fileWatcher->files());
         _fileWatcher->addPath(certPath);
         _fileWatcher->addPath(keyPath);
     }
-    
-    // 验证证书状态
-    CertificateStatus status = validateCertificate(certificate);
+
+    // 在锁外发射信号和记录日志
     if (status == Expired) {
         LOG_WARNING("Loaded certificate has expired");
         emit certificateExpired(certificate);
@@ -105,11 +118,11 @@ bool CertificateManager::loadCertificate(const QString &certPath, const QString 
         LOG_WARNING(QString("Loaded certificate will expire in %1 days").arg(daysRemaining));
         emit certificateExpiringSoon(certificate, daysRemaining);
     }
-    
+
     LOG_INFO(QString("Certificate loaded successfully: %1").arg(certPath));
     emit certificateLoaded();
-    
-    return true;
+
+    return success;
 }
 
 bool CertificateManager::generateSelfSignedCertificate(const QString &commonName,

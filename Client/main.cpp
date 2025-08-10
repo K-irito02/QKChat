@@ -3,6 +3,8 @@
 #include <QQmlContext>
 #include <QStandardPaths>
 #include <QDir>
+#include <QDirIterator>
+#include <QFile>
 #include <QTimer>
 
 #include "src/auth/AuthManager.h"
@@ -40,8 +42,8 @@ int main(int argc, char *argv[])
     // 异步初始化数据库，避免阻塞主线程
     DatabaseManager* dbManager = DatabaseManager::instance();
     
-    // 使用QTimer异步初始化数据库
-    QTimer::singleShot(0, [dbManager]() {
+    // 使用QTimer延迟初始化数据库，给UI更多时间渲染
+    QTimer::singleShot(100, [dbManager]() {
         try {
             if (!dbManager->initialize()) {
                 LOG_ERROR("Failed to initialize database");
@@ -76,19 +78,20 @@ int main(int argc, char *argv[])
     try {
         // 首先创建AuthManager实例
         authManager = AuthManager::instance();
-
-        // 初始化认证管理器
-        if (!authManager->initialize("localhost", 8080, true)) {
-            LOG_ERROR("Failed to initialize AuthManager");
-            return -1;
-        }
-
-        // 然后创建SessionManager实例
         sessionManager = SessionManager::instance();
 
-        // 将管理器实例暴露给QML
+        // 将管理器实例暴露给QML（先暴露，后初始化）
         engine.rootContext()->setContextProperty("authManager", authManager);
         engine.rootContext()->setContextProperty("sessionManager", sessionManager);
+
+        // 异步初始化认证管理器，避免阻塞UI
+        QTimer::singleShot(50, [authManager]() {
+            if (!authManager->initialize("localhost", 8080, false)) {  // 禁用SSL
+                LOG_ERROR("Failed to initialize AuthManager");
+            } else {
+                LOG_INFO("AuthManager initialized successfully");
+            }
+        });
 
     } catch (const std::exception& e) {
         LOG_ERROR(QString("Exception while creating managers: %1").arg(e.what()));
@@ -109,12 +112,31 @@ int main(int argc, char *argv[])
         }, Qt::QueuedConnection);
 
     // 加载主QML文件
-    const QUrl url(QStringLiteral("qrc:/qt/qml/Client/Main.qml"));
-    
+    const QUrl url(QStringLiteral("qrc:/Main.qml"));
+    QObject::connect(&engine, &QQmlApplicationEngine::objectCreated,
+                     &app, [url](QObject *obj, const QUrl &objUrl) {
+        if (!obj && url == objUrl) {
+            QCoreApplication::exit(-1);
+        }
+    }, Qt::QueuedConnection);
+
+    LOG_INFO(QString("Attempting to load QML file from: %1").arg(url.toString()));
+
     engine.load(url);
 
     if (engine.rootObjects().isEmpty()) {
-        LOG_ERROR("Failed to load QML file");
+        LOG_ERROR(QString("Failed to load QML file from: %1").arg(url.toString()));
+
+        // 尝试列出可用的资源
+        LOG_ERROR("Available QML resources:");
+        QDirIterator it(":", QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            QString path = it.next();
+            if (path.endsWith(".qml")) {
+                LOG_ERROR(QString("  - %1").arg(path));
+            }
+        }
+
         return -1;
     }
 
@@ -127,6 +149,5 @@ int main(int argc, char *argv[])
     LOG_INFO("QKChat Client shutting down");
     dbManager->close();
     Logger::shutdown();
-
     return result;
 }

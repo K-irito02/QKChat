@@ -6,20 +6,16 @@
 User::User(QObject *parent)
     : QObject(parent)
     , _id(0)
-    , _status("offline")
-    , _theme("light")
-    , _isVerified(false)
-    , _isActive(true)
+    , _status("inactive")
+    , _emailVerified(false)
 {
 }
 
 User::User(const QJsonObject &json, QObject *parent)
     : QObject(parent)
     , _id(0)
-    , _status("offline")
-    , _theme("light")
-    , _isVerified(false)
-    , _isActive(true)
+    , _status("inactive")
+    , _emailVerified(false)
 {
     fromJson(json);
 }
@@ -34,9 +30,13 @@ void User::fromJson(const QJsonObject &json)
     _salt = json["salt"].toString();
     _avatarUrl = json["avatar_url"].toString();
     _status = json["status"].toString();
-    _theme = json["theme"].toString();
-    _isVerified = json["is_verified"].toBool();
-    _isActive = json["is_active"].toBool();
+    _bio = json["bio"].toString();
+    _emailVerified = json["email_verified"].toBool();
+    _verificationCode = json["verification_code"].toString();
+    
+    if (json.contains("verification_expires")) {
+        _verificationExpires = QDateTime::fromString(json["verification_expires"].toString(), Qt::ISODate);
+    }
     
     if (json.contains("created_at")) {
         _createdAt = QDateTime::fromString(json["created_at"].toString(), Qt::ISODate);
@@ -46,8 +46,8 @@ void User::fromJson(const QJsonObject &json)
         _updatedAt = QDateTime::fromString(json["updated_at"].toString(), Qt::ISODate);
     }
     
-    if (json.contains("last_login")) {
-        _lastLogin = QDateTime::fromString(json["last_login"].toString(), Qt::ISODate);
+    if (json.contains("last_online")) {
+        _lastOnline = QDateTime::fromString(json["last_online"].toString(), Qt::ISODate);
     }
 }
 
@@ -60,15 +60,15 @@ QJsonObject User::toClientJson() const
     json["display_name"] = _displayName;
     json["avatar_url"] = _avatarUrl;
     json["status"] = _status;
-    json["theme"] = _theme;
-    json["is_verified"] = _isVerified;
+    json["bio"] = _bio;
+    json["email_verified"] = _emailVerified;
     
     if (_createdAt.isValid()) {
         json["created_at"] = _createdAt.toString(Qt::ISODate);
     }
     
-    if (_lastLogin.isValid()) {
-        json["last_login"] = _lastLogin.toString(Qt::ISODate);
+    if (_lastOnline.isValid()) {
+        json["last_online"] = _lastOnline.toString(Qt::ISODate);
     }
     
     return json;
@@ -79,7 +79,11 @@ QJsonObject User::toFullJson() const
     QJsonObject json = toClientJson();
     json["password_hash"] = _passwordHash;
     json["salt"] = _salt;
-    json["is_active"] = _isActive;
+    json["email_verified"] = _emailVerified;
+    json["verification_code"] = _verificationCode;
+    if (_verificationExpires.isValid()) {
+        json["verification_expires"] = _verificationExpires.toString(Qt::ISODate);
+    }
     
     if (_updatedAt.isValid()) {
         json["updated_at"] = _updatedAt.toString(Qt::ISODate);
@@ -102,13 +106,14 @@ void User::clear()
     _passwordHash.clear();
     _salt.clear();
     _avatarUrl.clear();
-    _status = "offline";
-    _theme = "light";
-    _isVerified = false;
-    _isActive = true;
+    _status = "inactive";
+    _bio.clear();
+    _emailVerified = false;
+    _verificationCode.clear();
+    _verificationExpires = QDateTime();
+    _lastOnline = QDateTime();
     _createdAt = QDateTime();
     _updatedAt = QDateTime();
-    _lastLogin = QDateTime();
 }
 
 void User::copyFrom(const User &other)
@@ -121,12 +126,13 @@ void User::copyFrom(const User &other)
     _salt = other._salt;
     _avatarUrl = other._avatarUrl;
     _status = other._status;
-    _theme = other._theme;
-    _isVerified = other._isVerified;
-    _isActive = other._isActive;
+    _bio = other._bio;
+    _emailVerified = other._emailVerified;
+    _verificationCode = other._verificationCode;
+    _verificationExpires = other._verificationExpires;
+    _lastOnline = other._lastOnline;
     _createdAt = other._createdAt;
     _updatedAt = other._updatedAt;
-    _lastLogin = other._lastLogin;
 }
 
 bool User::verifyPassword(const QString &password) const
@@ -145,9 +151,9 @@ void User::setPassword(const QString &password)
     _passwordHash = hashPassword(password, _salt);
 }
 
-void User::updateLastLogin()
+void User::updateLastOnline()
 {
-    _lastLogin = QDateTime::currentDateTime();
+    _lastOnline = QDateTime::currentDateTime();
 }
 
 QString User::getDisplayName() const
@@ -157,7 +163,7 @@ QString User::getDisplayName() const
 
 bool User::canLogin() const
 {
-    return _isActive && _isVerified && !_passwordHash.isEmpty();
+    return isActive() && isEmailVerified() && !_passwordHash.isEmpty();
 }
 
 QString User::generateSalt() const

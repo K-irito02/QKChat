@@ -2,9 +2,9 @@
 #include "../utils/Logger.h"
 #include <QUuid>
 #include <QJsonDocument>
-#include <QSslCertificate>
-#include <QSslKey>
-#include <QSslCipher>
+// #include <QSslCertificate>
+// #include <QSslKey>
+// #include <QSslCipher>
 #include <QFile>
 #include <QStandardPaths>
 #include <QCoreApplication>
@@ -19,7 +19,7 @@ NetworkClient::NetworkClient(QObject *parent)
     , _socket(nullptr)
     , _connectionState(Disconnected)
     , _serverPort(0)
-    , _useTLS(true)
+    , _useTLS(false)  // 暂时禁用SSL
     , _connectionTimeout(10000)  // 10秒
     , _heartbeatInterval(30000)  // 30秒
     , _reconnectInterval(1000)   // 1秒
@@ -34,9 +34,9 @@ NetworkClient::NetworkClient(QObject *parent)
     
     // 简化对象创建
     try {
-        // 创建SSL套接字
-        _socket = new QSslSocket(this);
-        LOG_INFO("SSL socket created");
+        // 创建普通TCP套接字而不是SSL套接字
+        _socket = new QTcpSocket(this);
+        LOG_INFO("TCP socket created");
         
         // 创建定时器
         _connectionTimer = new QTimer(this);
@@ -50,18 +50,18 @@ NetworkClient::NetworkClient(QObject *parent)
         _reconnectTimer->setSingleShot(true);
         LOG_INFO("Reconnect timer created");
         
-        // 连接信号
-        connect(_socket, &QSslSocket::connected, this, &NetworkClient::onConnected);
-        connect(_socket, &QSslSocket::disconnected, this, &NetworkClient::onDisconnected);
-        connect(_socket, &QSslSocket::readyRead, this, &NetworkClient::onReadyRead);
-        connect(_socket, QOverload<QAbstractSocket::SocketError>::of(&QSslSocket::errorOccurred),
-                this, &NetworkClient::onSocketError);
-        connect(_socket, &QSslSocket::sslErrors, this, &NetworkClient::onSslErrors);
+        // 连接信号（使用队列连接确保线程安全）
+        connect(_socket, &QTcpSocket::connected, this, &NetworkClient::onConnected, Qt::QueuedConnection);
+        connect(_socket, &QTcpSocket::disconnected, this, &NetworkClient::onDisconnected, Qt::QueuedConnection);
+        connect(_socket, &QTcpSocket::readyRead, this, &NetworkClient::onReadyRead, Qt::QueuedConnection);
+        connect(_socket, QOverload<QAbstractSocket::SocketError>::of(&QTcpSocket::errorOccurred),
+                this, &NetworkClient::onSocketError, Qt::QueuedConnection);
+        // connect(_socket, &QSslSocket::sslErrors, this, &NetworkClient::onSslErrors, Qt::QueuedConnection);
         LOG_INFO("Socket signals connected");
         
-        connect(_connectionTimer, &QTimer::timeout, this, &NetworkClient::onConnectionTimeout);
-        connect(_heartbeatTimer, &QTimer::timeout, this, &NetworkClient::onHeartbeatTimeout);
-        connect(_reconnectTimer, &QTimer::timeout, this, &NetworkClient::onReconnectTimer);
+        connect(_connectionTimer, &QTimer::timeout, this, &NetworkClient::onConnectionTimeout, Qt::QueuedConnection);
+        connect(_heartbeatTimer, &QTimer::timeout, this, &NetworkClient::onHeartbeatTimeout, Qt::QueuedConnection);
+        connect(_reconnectTimer, &QTimer::timeout, this, &NetworkClient::onReconnectTimer, Qt::QueuedConnection);
         LOG_INFO("Timer signals connected");
         
         // 暂时禁用复杂的网络质量监控和错误处理
@@ -69,9 +69,9 @@ NetworkClient::NetworkClient(QObject *parent)
         _errorHandler = nullptr;
         LOG_INFO("Quality monitor and error handler disabled");
         
-        // 配置SSL
-        configureSsl();
-        LOG_INFO("SSL configured");
+        // 暂时注释掉SSL配置
+        // configureSsl();
+        LOG_INFO("SSL configuration disabled");
         
         LOG_INFO("=== NetworkClient constructor completed successfully ===");
         
@@ -118,23 +118,18 @@ bool NetworkClient::connectToServer(const QString &host, quint16 port, bool useT
     
     _serverHost = host;
     _serverPort = port;
-    _useTLS = useTLS;
+    _useTLS = false;  // 强制禁用SSL
     
     setConnectionState(Connecting);
     
-    LOG_INFO(QString("Connecting to server %1:%2 (TLS: %3)")
-             .arg(host).arg(port).arg(useTLS ? "Yes" : "No"));
+    LOG_INFO(QString("Connecting to server %1:%2 (TLS: disabled)")
+             .arg(host).arg(port));
     
     // 启动连接超时定时器
     _connectionTimer->start(_connectionTimeout);
-    
-    // 临时禁用SSL以测试基本连接
-    if (_useTLS) {
-        LOG_WARNING("SSL temporarily disabled for testing - using plain TCP connection");
-        _socket->connectToHost(host, port);
-    } else {
-        _socket->connectToHost(host, port);
-    }
+
+    // 暂时禁用SSL，只使用普通TCP连接
+    _socket->connectToHost(host, port);
     
     return true;
 }
@@ -162,12 +157,12 @@ void NetworkClient::disconnectFromServer()
     setConnectionState(Disconnected);
 }
 
-QString NetworkClient::sendLoginRequest(const QString &username, const QString &passwordHash, bool rememberMe)
+QString NetworkClient::sendLoginRequest(const QString &username, const QString &password, bool rememberMe)
 {
     QJsonObject request;
     request["action"] = "login";
     request["username"] = username;
-    request["password_hash"] = passwordHash;
+    request["password"] = password;
     request["remember_me"] = rememberMe;
     request["client_version"] = "1.0.0";
     request["platform"] = "Windows";
@@ -183,13 +178,13 @@ QString NetworkClient::sendLoginRequest(const QString &username, const QString &
 }
 
 QString NetworkClient::sendRegisterRequest(const QString &username, const QString &email, 
-                                          const QString &passwordHash, const QString &verificationCode)
+                                          const QString &password, const QString &verificationCode)
 {
     QJsonObject request;
     request["action"] = "register";
     request["username"] = username;
     request["email"] = email;
-    request["password_hash"] = passwordHash;
+    request["password"] = password;
     request["verification_code"] = verificationCode;
     request["client_version"] = "1.0.0";
     request["platform"] = "Windows";
@@ -289,13 +284,9 @@ void NetworkClient::onConnected()
         }
         
         // 记录连接信息
-        if (_useTLS) {
-            LOG_INFO("SSL temporarily disabled - using plain TCP connection");
-        } else {
-            LOG_INFO("Using plain TCP connection");
-        }
-        
-        // 直接启动心跳定时器，简化逻辑
+        LOG_INFO("Connected with plain TCP connection");
+
+        // 启动心跳定时器
         LOG_INFO("=== Starting heartbeat timer ===");
         
         if (_connectionState == Connected && _heartbeatTimer) {
@@ -380,36 +371,38 @@ void NetworkClient::onSocketError(QAbstractSocket::SocketError error)
     emit networkError(errorString);
 }
 
-void NetworkClient::onSslErrors(const QList<QSslError> &errors)
-{
-    QStringList errorStrings;
-    QStringList errorDetails;
-    
-    for (const QSslError &error : errors) {
-        QString errorStr = error.errorString();
-        errorStrings << errorStr;
-        
-        // 记录详细的SSL错误信息
-        QString detail = QString("SSL Error: %1 (Code: %2)")
-                        .arg(errorStr)
-                        .arg(static_cast<int>(error.error()));
-        errorDetails << detail;
-        LOG_WARNING(detail);
-    }
-    
-    QString errorString = errorStrings.join("; ");
-    LOG_WARNING(QString("SSL errors detected: %1").arg(errorString));
-    
-    // SSL配置信息已移除，避免调试信息干扰
-    
-    // 在开发环境中忽略所有SSL错误
-    _socket->ignoreSslErrors();
-    
-    // 继续连接，不因为SSL错误而断开
-    LOG_INFO("Ignoring SSL errors and continuing connection");
-    
-    emit sslErrors(errors);
-}
+// void NetworkClient::onSslErrors(const QList<QSslError> &errors)
+// {
+//     // 暂时禁用SSL错误处理，因为现在使用普通TCP连接
+//     Q_UNUSED(errors)
+//     LOG_INFO("SSL errors ignored - using plain TCP connection");
+//     
+//     // QStringList errorStrings;
+//     // QStringList errorDetails;
+//     
+//     // for (const QSslError &error : errors) {
+//     //     QString errorStr = error.errorString();
+//     //     errorStrings << errorStr;
+//     //     
+//     //     // 记录详细的SSL错误信息
+//     //     QString detail = QString("SSL Error: %1 (Code: %2)")
+//     //                     .arg(errorStr)
+//     //                     .arg(static_cast<int>(error.error()));
+//     //     errorDetails << detail;
+//     //     LOG_WARNING(detail);
+//     // }
+//     
+//     // QString errorString = errorStrings.join("; ");
+//     // LOG_WARNING(QString("SSL errors detected: %1").arg(errorString));
+//     
+//     // 在开发环境中忽略所有SSL错误
+//     // _socket->ignoreSslErrors();
+//     
+//     // 继续连接，不因为SSL错误而断开
+//     // LOG_INFO("Ignoring SSL errors and continuing connection");
+//     
+//     // emit sslErrors(errors);
+// }
 
 void NetworkClient::onConnectionTimeout()
 {
@@ -480,11 +473,10 @@ void NetworkClient::startReconnection()
     
     // 简化重连延迟，避免过长的延迟
     int delay = qMin(_reconnectInterval * _currentReconnectAttempts, 10000); // 最大10秒
-    
-    LOG_INFO(QString("Starting reconnection attempt %1/%2 in %3ms")
+
+    LOG_INFO(QString("Starting reconnection attempt %1/%2")
              .arg(_currentReconnectAttempts)
-             .arg(_maxReconnectAttempts)
-             .arg(delay));
+             .arg(_maxReconnectAttempts));
     
     // 确保重连定时器是单次触发
     _reconnectTimer->setSingleShot(true);
@@ -493,17 +485,10 @@ void NetworkClient::startReconnection()
 
 void NetworkClient::onReconnectTimer()
 {
-    LOG_INFO(QString("Reconnection attempt %1/%2")
-             .arg(_currentReconnectAttempts)
-             .arg(_maxReconnectAttempts));
-    
     // 尝试重新连接
     if (_socket->state() == QAbstractSocket::UnconnectedState) {
-        if (_useTLS) {
-            _socket->connectToHost(_serverHost, _serverPort);
-        } else {
-            _socket->connectToHost(_serverHost, _serverPort);
-        }
+        // 暂时禁用SSL，只使用普通TCP连接
+        _socket->connectToHost(_serverHost, _serverPort);
         
         // 启动连接超时
         _connectionTimer->start(_connectionTimeout);
@@ -516,10 +501,6 @@ void NetworkClient::handleReconnectionSuccess()
 {
     LOG_INFO("Reconnection successful");
     _currentReconnectAttempts = 0;
-    // 暂时禁用错误处理器
-    // if (_errorHandler) {
-    //     _errorHandler->resetAllErrorCounts();
-    // }
     setConnectionState(Connected);
 }
 
@@ -592,70 +573,80 @@ QString NetworkClient::sendJsonRequest(const QJsonObject &request)
 
 void NetworkClient::processReceivedData(const QByteArray &data)
 {
-    QMutexLocker locker(&_dataMutex);
-    
-    try {
-        // 线程安全地添加接收数据
-        _receiveBuffer.append(data);
-        
-        // 限制接收缓冲区大小，防止内存耗尽
-        const int MAX_BUFFER_SIZE = 1024 * 1024; // 1MB
-        if (_receiveBuffer.size() > MAX_BUFFER_SIZE) {
-            LOG_ERROR("Receive buffer size exceeded limit, clearing buffer");
-            _receiveBuffer.clear();
-            return;
-        }
-        
-        while (_receiveBuffer.size() >= 4) {
-            // 读取消息长度
-            QDataStream stream(_receiveBuffer);
-            stream.setByteOrder(QDataStream::BigEndian);
-            quint32 messageLength;
-            stream >> messageLength;
-            
-            // 检查消息长度是否合理
-            const quint32 MAX_MESSAGE_SIZE = 64 * 1024; // 64KB
-            if (messageLength > MAX_MESSAGE_SIZE) {
-                LOG_ERROR(QString("Message length too large: %1 bytes, clearing buffer").arg(messageLength));
+    QList<QJsonObject> responsesToProcess;
+
+    // 在锁内快速处理数据，避免长时间持有锁
+    {
+        QMutexLocker locker(&_dataMutex);
+
+        try {
+            // 线程安全地添加接收数据
+            _receiveBuffer.append(data);
+
+            // 限制接收缓冲区大小，防止内存耗尽
+            const int MAX_BUFFER_SIZE = 1024 * 1024; // 1MB
+            if (_receiveBuffer.size() > MAX_BUFFER_SIZE) {
+                LOG_ERROR("Receive buffer size exceeded limit, clearing buffer");
                 _receiveBuffer.clear();
                 return;
             }
-            
-            if (messageLength == 0) {
-                LOG_ERROR("Invalid message length: 0, removing header");
-                _receiveBuffer.remove(0, 4);
-                continue;
+
+            while (_receiveBuffer.size() >= 4) {
+                // 读取消息长度
+                QDataStream stream(_receiveBuffer);
+                stream.setByteOrder(QDataStream::BigEndian);
+                quint32 messageLength;
+                stream >> messageLength;
+
+                // 检查消息长度是否合理
+                const quint32 MAX_MESSAGE_SIZE = 64 * 1024; // 64KB
+                if (messageLength > MAX_MESSAGE_SIZE) {
+                    LOG_ERROR(QString("Message length too large: %1 bytes, clearing buffer").arg(messageLength));
+                    _receiveBuffer.clear();
+                    return;
+                }
+
+                if (messageLength == 0) {
+                    LOG_ERROR("Invalid message length: 0, removing header");
+                    _receiveBuffer.remove(0, 4);
+                    continue;
+                }
+
+                // 检查是否接收到完整消息
+                if (_receiveBuffer.size() < 4 + messageLength) {
+                    break; // 等待更多数据
+                }
+
+                // 提取消息内容
+                QByteArray messageData = _receiveBuffer.mid(4, messageLength);
+                _receiveBuffer.remove(0, 4 + messageLength);
+
+                // 解析JSON响应
+                QJsonParseError error;
+                QJsonDocument doc = QJsonDocument::fromJson(messageData, &error);
+
+                if (error.error != QJsonParseError::NoError) {
+                    LOG_ERROR(QString("Failed to parse JSON response: %1").arg(error.errorString()));
+                    continue;
+                }
+
+                if (doc.isObject()) {
+                    responsesToProcess.append(doc.object());
+                }
             }
 
-            // 检查是否接收到完整消息
-            if (_receiveBuffer.size() < 4 + messageLength) {
-                break; // 等待更多数据
-            }
-
-            // 提取消息内容
-            QByteArray messageData = _receiveBuffer.mid(4, messageLength);
-            _receiveBuffer.remove(0, 4 + messageLength);
-
-            // 解析JSON响应
-            QJsonParseError error;
-            QJsonDocument doc = QJsonDocument::fromJson(messageData, &error);
-
-            if (error.error != QJsonParseError::NoError) {
-                LOG_ERROR(QString("Failed to parse JSON response: %1").arg(error.errorString()));
-                continue;
-            }
-
-            if (doc.isObject()) {
-                processJsonResponse(doc.object());
-            }
+        } catch (const std::exception& e) {
+            LOG_ERROR(QString("Exception in processReceivedData(): %1").arg(e.what()));
+            _receiveBuffer.clear();
+        } catch (...) {
+            LOG_ERROR("Unknown exception in processReceivedData()");
+            _receiveBuffer.clear();
         }
-        
-    } catch (const std::exception& e) {
-        LOG_ERROR(QString("Exception in processReceivedData(): %1").arg(e.what()));
-        _receiveBuffer.clear();
-    } catch (...) {
-        LOG_ERROR("Unknown exception in processReceivedData()");
-        _receiveBuffer.clear();
+    } // 锁在这里释放
+
+    // 在锁外处理响应，避免死锁
+    for (const QJsonObject& response : responsesToProcess) {
+        processJsonResponse(response);
     }
 }
 
@@ -664,12 +655,29 @@ void NetworkClient::processJsonResponse(const QJsonObject &response)
     QString requestId = response["request_id"].toString();
     QString action = response["action"].toString();
 
-    // 注意：此方法由processReceivedData调用，_dataMutex已经被锁定
-    // 不要在此处再次锁定_dataMutex，避免死锁
-    
-    if (_pendingRequests.contains(requestId)) {
-        QString requestType = _pendingRequests.take(requestId);
+    LOG_INFO(QString("Processing response: requestId=%1, action=%2").arg(requestId).arg(action));
 
+    // 注意：此方法现在在锁外调用，需要在访问共享数据时加锁
+    QString requestType;
+    bool hasRequest = false;
+
+    {
+        QMutexLocker locker(&_dataMutex);
+        LOG_INFO(QString("Pending requests count: %1").arg(_pendingRequests.size()));
+        for (auto it = _pendingRequests.begin(); it != _pendingRequests.end(); ++it) {
+            LOG_INFO(QString("Pending request: %1 -> %2").arg(it.key()).arg(it.value()));
+        }
+
+        if (_pendingRequests.contains(requestId)) {
+            requestType = _pendingRequests.take(requestId);
+            hasRequest = true;
+            LOG_INFO(QString("Found matching request: %1 -> %2").arg(requestId).arg(requestType));
+        } else {
+            LOG_WARNING(QString("No matching request found for ID: %1").arg(requestId));
+        }
+    }
+
+    if (hasRequest) {
         if (requestType == "login") {
             emit loginResponse(requestId, response);
         } else if (requestType == "register") {
@@ -746,29 +754,32 @@ QString NetworkClient::generateRequestId()
 
 void NetworkClient::configureSsl()
 {
-    try {
-        if (!_socket) {
-            LOG_ERROR("Socket is null in configureSsl()");
-            return;
-        }
-        
-        // 使用默认SSL配置
-        QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
-        sslConfig.setProtocol(QSsl::TlsV1_2);
-        sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
-        sslConfig.setPeerVerifyDepth(0);
-        
-        // 忽略SSL错误
-        _socket->ignoreSslErrors();
-        
-        // 设置SSL配置
-        _socket->setSslConfiguration(sslConfig);
-        
-        LOG_INFO("SSL configured successfully");
-        
-    } catch (const std::exception& e) {
-        LOG_ERROR(QString("Exception in configureSsl(): %1").arg(e.what()));
-    } catch (...) {
-        LOG_ERROR("Unknown exception in configureSsl()");
-    }
+    // 暂时禁用SSL配置，因为现在使用普通TCP连接
+    LOG_INFO("SSL configuration disabled - using plain TCP connection");
+    
+    // try {
+    //     if (!_socket) {
+    //         LOG_ERROR("Socket is null in configureSsl()");
+    //         return;
+    //     }
+    //     
+    //     // 使用默认SSL配置
+    //     QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
+    //     sslConfig.setProtocol(QSsl::TlsV1_2);
+    //     sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+    //     sslConfig.setPeerVerifyDepth(0);
+    //     
+    //     // 忽略SSL错误
+    //     _socket->ignoreSslErrors();
+    //     
+    //     // 设置SSL配置
+    //     _socket->setSslConfiguration(sslConfig);
+    //     
+    //     LOG_INFO("SSL configured successfully");
+    //     
+    // } catch (const std::exception& e) {
+    //     LOG_ERROR(QString("Exception in configureSsl(): %1").arg(e.what()));
+    // } catch (...) {
+    //     LOG_ERROR("Unknown exception in configureSsl()");
+    // }
 }

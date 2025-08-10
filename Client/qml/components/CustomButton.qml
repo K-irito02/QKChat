@@ -148,7 +148,7 @@ Button {
     // 鼠标区域（用于涟漪效果）
     MouseArea {
         anchors.fill: parent
-        onPressed: {
+        onPressed: function(mouse) {
             if (customButton.enabled) {
                 rippleAnimation.start()
             }

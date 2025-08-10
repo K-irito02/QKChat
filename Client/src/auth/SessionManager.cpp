@@ -25,9 +25,9 @@ SessionManager::SessionManager(QObject *parent)
     _expiringWarningTimer = new QTimer(this);
     _expiringWarningTimer->setSingleShot(true);
     
-    // 连接信号
-    connect(_sessionTimer, &QTimer::timeout, this, &SessionManager::onSessionTimeout);
-    connect(_expiringWarningTimer, &QTimer::timeout, this, &SessionManager::onSessionExpiringWarning);
+    // 连接信号（使用队列连接确保线程安全）
+    connect(_sessionTimer, &QTimer::timeout, this, &SessionManager::onSessionTimeout, Qt::QueuedConnection);
+    connect(_expiringWarningTimer, &QTimer::timeout, this, &SessionManager::onSessionExpiringWarning, Qt::QueuedConnection);
     
     // 创建设置对象
     _settings = new QSettings("QKChat", "Client", this);
@@ -68,14 +68,15 @@ bool SessionManager::createSession(User* user, const QString &sessionToken, bool
     // 确保在主线程中执行
     if (QThread::currentThread() != QCoreApplication::instance()->thread()) {
         LOG_ERROR("createSession called from non-main thread");
-        // 使用QMetaObject::invokeMethod确保在主线程中执行
-        bool result = false;
-        QMetaObject::invokeMethod(this, "createSession", Qt::BlockingQueuedConnection,
-                                Q_RETURN_ARG(bool, result),
-                                Q_ARG(User*, user),
-                                Q_ARG(QString, sessionToken),
-                                Q_ARG(bool, rememberMe));
-        return result;
+        // 使用QueuedConnection避免死锁，但这意味着无法返回结果
+        // 在非主线程中调用时，应该重新设计调用方式
+        QMetaObject::invokeMethod(this, [this, user, sessionToken, rememberMe]() {
+            createSession(user, sessionToken, rememberMe);
+        }, Qt::QueuedConnection);
+
+        // 返回false表示需要异步处理
+        LOG_WARNING("Session creation queued for main thread execution");
+        return false;
     }
     
     // 销毁现有会话

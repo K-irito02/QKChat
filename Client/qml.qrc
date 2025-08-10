@@ -1,0 +1,17 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>Main.qml</file>
+        <file>qml/LoginPage.qml</file>
+        <file>qml/RegisterPage.qml</file>
+        <file>qml/pages/MainPage.qml</file>
+        <file>qml/components/ThemeManager.qml</file>
+        <file>qml/components/CustomTextField.qml</file>
+        <file>qml/components/CustomButton.qml</file>
+        <file>qml/components/LoadingDialog.qml</file>
+        <file>qml/components/MessageDialog.qml</file>
+        <file>qml/components/SettingsManager.qml</file>
+        <file>qml/components/PageTransition.qml</file>
+        <file>qml/components/qmldir</file>
+    </qresource>
+</RCC>

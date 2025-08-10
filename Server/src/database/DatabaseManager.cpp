@@ -3,6 +3,7 @@
 #include <QSqlDriver>
 #include <QThread>
 #include <QCoreApplication>
+#include <QTimer>
 
 
 // 静态成员初始化
@@ -24,9 +25,12 @@ DatabaseManager::~DatabaseManager()
 
 DatabaseManager* DatabaseManager::instance()
 {
-    QMutexLocker locker(&s_mutex);
+    // 双重检查锁定模式，提高性能
     if (!s_instance) {
-        s_instance = new DatabaseManager();
+        QMutexLocker locker(&s_mutex);
+        if (!s_instance) {
+            s_instance = new DatabaseManager();
+        }
     }
     return s_instance;
 }
@@ -274,13 +278,16 @@ void DatabaseManager::setupConnection()
     _database.setUserName(_username);
     _database.setPassword(_password);
     
-    // 设置连接选项（移除已弃用的MYSQL_OPT_RECONNECT）
-    _database.setConnectOptions("MYSQL_OPT_CONNECT_TIMEOUT=10;MYSQL_OPT_READ_TIMEOUT=30;MYSQL_OPT_WRITE_TIMEOUT=30");
+    // 设置连接选项，使用较短的超时时间避免阻塞
+    _database.setConnectOptions("MYSQL_OPT_CONNECT_TIMEOUT=3;MYSQL_OPT_READ_TIMEOUT=5;MYSQL_OPT_WRITE_TIMEOUT=5");
 }
 
 void DatabaseManager::logError(const QString &error)
 {
-    LOG_ERROR(error);
+    // 使用QTimer延迟记录日志，避免在持有锁时调用LOG宏
+    QTimer::singleShot(0, [error]() {
+        LOG_ERROR(error);
+    });
     _lastError = error;
 }
 
@@ -297,24 +304,29 @@ bool DatabaseManager::createTables()
     QString createUsersTable = R"(
         CREATE TABLE IF NOT EXISTS users (
             id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            username VARCHAR(50) NOT NULL UNIQUE,
-            email VARCHAR(255) NOT NULL UNIQUE,
-            display_name VARCHAR(100),
-            password_hash VARCHAR(255) NOT NULL,
-            salt VARCHAR(255) NOT NULL,
-            avatar_url VARCHAR(500),
-            status ENUM('online', 'offline', 'away', 'busy') DEFAULT 'offline',
-            theme ENUM('light', 'dark') DEFAULT 'light',
-            is_verified BOOLEAN DEFAULT FALSE,
-            is_active BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            last_login TIMESTAMP NULL,
-            INDEX idx_username (username),
-            INDEX idx_email (email),
+            username VARCHAR(50) NOT NULL UNIQUE COMMENT '用户名',
+            email VARCHAR(100) NOT NULL UNIQUE COMMENT '邮箱',
+            password_hash VARCHAR(255) NOT NULL COMMENT '密码哈希',
+            salt VARCHAR(64) NOT NULL COMMENT '盐值',
+            display_name VARCHAR(200) DEFAULT NULL COMMENT '显示名称',
+            avatar_url VARCHAR(512) DEFAULT NULL COMMENT '头像URL',
+            bio TEXT DEFAULT NULL COMMENT '个人简介',
+            status ENUM('active', 'inactive', 'banned', 'deleted') DEFAULT 'inactive' COMMENT '账户状态',
+            email_verified BOOLEAN DEFAULT FALSE COMMENT '邮箱是否已验证',
+            verification_code VARCHAR(10) DEFAULT NULL COMMENT '验证码',
+            verification_expires TIMESTAMP NULL DEFAULT NULL COMMENT '验证码过期时间',
+            last_online TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP COMMENT '最后在线时间',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+            UNIQUE INDEX idx_username (username),
+            UNIQUE INDEX idx_email (email),
             INDEX idx_status (status),
-            INDEX idx_created_at (created_at)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            INDEX idx_last_online (last_online),
+            INDEX idx_email_verified (email_verified),
+            INDEX idx_verification_expires (verification_expires),
+            INDEX idx_created_at (created_at),
+            INDEX idx_updated_at (updated_at)
+        ) ENGINE=InnoDB COMMENT='用户表'
     )";
 
     if (executeUpdate(createUsersTable) == -1) {
@@ -325,17 +337,20 @@ bool DatabaseManager::createTables()
     // 创建验证码表
     QString createVerificationCodesTable = R"(
         CREATE TABLE IF NOT EXISTS verification_codes (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            email VARCHAR(255) NOT NULL,
-            code VARCHAR(10) NOT NULL,
-            type ENUM('registration', 'password_reset', 'email_change') DEFAULT 'registration',
-            expires_at TIMESTAMP NOT NULL,
-            used_at TIMESTAMP NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            email VARCHAR(100) NOT NULL COMMENT '邮箱地址',
+            code VARCHAR(10) NOT NULL COMMENT '验证码',
+            type ENUM('registration', 'password_reset', 'email_change') DEFAULT 'registration' COMMENT '验证码类型',
+            expires_at TIMESTAMP NOT NULL COMMENT '过期时间',
+            used_at TIMESTAMP NULL DEFAULT NULL COMMENT '使用时间',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
             INDEX idx_email (email),
             INDEX idx_code (code),
-            INDEX idx_expires_at (expires_at)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            INDEX idx_type (type),
+            INDEX idx_expires_at (expires_at),
+            INDEX idx_used_at (used_at),
+            INDEX idx_email_type_expires (email, type, expires_at)
+        ) ENGINE=InnoDB COMMENT='验证码表'
     )";
 
     if (executeUpdate(createVerificationCodesTable) == -1) {
@@ -343,22 +358,25 @@ bool DatabaseManager::createTables()
         return false;
     }
 
-    // 创建会话表
+    // 创建用户会话表
     QString createSessionsTable = R"(
-        CREATE TABLE IF NOT EXISTS sessions (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS user_sessions (
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             user_id BIGINT UNSIGNED NOT NULL,
-            session_token VARCHAR(500) NOT NULL UNIQUE,
-            expires_at TIMESTAMP NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            ip_address VARCHAR(45),
-            user_agent TEXT,
+            session_token VARCHAR(128) NOT NULL UNIQUE COMMENT '会话令牌',
+            refresh_token VARCHAR(128) DEFAULT NULL COMMENT '刷新令牌',
+            device_info VARCHAR(500) DEFAULT NULL COMMENT '设备信息',
+            ip_address VARCHAR(45) DEFAULT NULL COMMENT 'IP地址',
+            user_agent TEXT DEFAULT NULL COMMENT '用户代理',
+            expires_at TIMESTAMP NOT NULL COMMENT '过期时间',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后活动时间',
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
             INDEX idx_user_id (user_id),
             INDEX idx_session_token (session_token),
             INDEX idx_expires_at (expires_at),
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            INDEX idx_user_expires (user_id, expires_at)
+        ) ENGINE=InnoDB COMMENT='用户会话表'
     )";
 
     LOG_INFO("Creating sessions table...");
@@ -370,10 +388,10 @@ bool DatabaseManager::createTables()
     // 创建登录日志表
     QString createLoginLogsTable = R"(
         CREATE TABLE IF NOT EXISTS login_logs (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             user_id BIGINT UNSIGNED,
             username VARCHAR(50),
-            email VARCHAR(255),
+            email VARCHAR(100),
             success BOOLEAN NOT NULL,
             ip_address VARCHAR(45),
             user_agent TEXT,
@@ -383,7 +401,7 @@ bool DatabaseManager::createTables()
             INDEX idx_success (success),
             INDEX idx_created_at (created_at),
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ) ENGINE=InnoDB COMMENT='登录日志表'
     )";
 
     if (executeUpdate(createLoginLogsTable) == -1) {

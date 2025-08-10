@@ -9,7 +9,7 @@ const QString Crypto::DIGIT_CHARS = "0123456789";
 const QString Crypto::SYMBOL_CHARS = "!@#$%^&*()_+-=[]{}|;:,.<>?";
 
 // 会话令牌密钥（实际项目中应该从配置文件读取）
-const QString Crypto::SESSION_SECRET = "QKChat_Server_Secret_Key_2024";
+const QString Crypto::SESSION_SECRET = "QKChat_Server_Secret_Key_2025";
 
 QString Crypto::generateSalt(int length)
 {
@@ -56,18 +56,7 @@ QString Crypto::generateRandomString(int length, bool includeSymbols)
     return result;
 }
 
-QString Crypto::generateVerificationCode(int length)
-{
-    QString code;
-    code.reserve(length);
-    
-    for (int i = 0; i < length; ++i) {
-        int digit = QRandomGenerator::global()->bounded(10);
-        code.append(QString::number(digit));
-    }
-    
-    return code;
-}
+
 
 QString Crypto::generateSessionToken(qint64 userId, qint64 timestamp)
 {

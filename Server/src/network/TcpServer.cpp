@@ -8,6 +8,7 @@
 
 TcpServer::TcpServer(QObject *parent)
     : QTcpServer(parent)
+    , _protocolHandler(nullptr)
     , _useTLS(true)
     , _heartbeatInterval(30000) // 30秒
     , _maxClients(1000)
@@ -171,8 +172,13 @@ void TcpServer::setHeartbeatInterval(int interval)
 void TcpServer::setMaxClients(int maxClients)
 {
     _maxClients = maxClients;
-    
+
     LOG_INFO(QString("Maximum clients set to %1").arg(maxClients));
+}
+
+void TcpServer::setProtocolHandler(ProtocolHandler *protocolHandler)
+{
+    _protocolHandler = protocolHandler;
 }
 
 QJsonObject TcpServer::getServerStatistics() const
@@ -207,7 +213,6 @@ void TcpServer::incomingConnection(qintptr socketDescriptor)
     if (_clients.size() >= _maxClients) {
         LOG_WARNING(QString("Rejected connection: maximum clients reached (%1)").arg(_maxClients));
         
-        // 创建临时socket发送拒绝消息
         QTcpSocket tempSocket;
         tempSocket.setSocketDescriptor(socketDescriptor);
         
@@ -225,7 +230,7 @@ void TcpServer::incomingConnection(qintptr socketDescriptor)
     }
     
     // 创建客户端处理器
-    ClientHandler* client = new ClientHandler(socketDescriptor, _useTLS, this);
+    ClientHandler* client = new ClientHandler(socketDescriptor, _protocolHandler, _useTLS, this);
     
     // 设置TLS证书
     if (_useTLS && !_certFile.isEmpty() && !_keyFile.isEmpty()) {
@@ -262,24 +267,26 @@ void TcpServer::onClientDisconnected()
     
     QString clientId = client->clientId();
     qint64 userId = client->userId();
-    
+    bool shouldEmitUserLoggedOut = false;
 
-    
     {
         QMutexLocker locker(&_clientsMutex);
-        
+
         // 从客户端列表中移除
         if (_clients.contains(clientId)) {
             _clients.remove(clientId);
-        
         }
-        
+
         // 从用户客户端映射中移除
         if (userId > 0 && _userClients.contains(userId)) {
             _userClients.remove(userId);
-            emit userLoggedOut(userId);
-        
+            shouldEmitUserLoggedOut = true;
         }
+    } // 锁在这里释放
+
+    // 在锁外发射信号
+    if (shouldEmitUserLoggedOut) {
+        emit userLoggedOut(userId);
     }
     
     LOG_INFO(QString("Client disconnected: %1 (Total: %2)")

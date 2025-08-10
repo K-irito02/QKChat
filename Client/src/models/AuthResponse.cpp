@@ -65,10 +65,23 @@ void AuthResponse::setSessionToken(const QString &sessionToken)
 
 void AuthResponse::fromJson(const QJsonObject &json)
 {
-    setSuccess(json["success"].toBool());
-    setMessage(json["message"].toString());
-    setErrorCode(json["error_code"].toString());
-    setSessionToken(json["session_token"].toString());
+    bool success = json["success"].toBool();
+    QString message = json["message"].toString();
+    QString errorCode = json["error_code"].toString();
+    QString errorMessage = json["error_message"].toString();
+    QString sessionToken = json["session_token"].toString();
+    
+
+    
+    setSuccess(success);
+    // 如果是错误响应，使用error_message作为message
+    if (!success && !errorMessage.isEmpty()) {
+        setMessage(errorMessage);
+    } else {
+        setMessage(message);
+    }
+    setErrorCode(errorCode);
+    setSessionToken(sessionToken);
     
     if (json.contains("user") && json["user"].isObject()) {
         User* newUser = new User(json["user"].toObject(), this);
@@ -93,7 +106,13 @@ QJsonObject AuthResponse::toJson() const
 
 bool AuthResponse::isValid() const
 {
-    return !_message.isEmpty();
+    // 对于成功响应，不需要message字段
+    // 对于失败响应，需要message字段
+    if (_success) {
+        return true;  // 成功响应总是有效的
+    } else {
+        return !_message.isEmpty();  // 失败响应需要错误消息
+    }
 }
 
 void AuthResponse::clear()
