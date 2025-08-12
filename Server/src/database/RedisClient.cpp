@@ -297,7 +297,7 @@ RedisClient::Result RedisClient::deleteSessionToken(qint64 userId)
 
 void RedisClient::onConnected()
 {
-    LOG_INFO("Redis connected successfully");
+
     _isConnected = true;
     emit connectionStateChanged(true);
 }
@@ -388,16 +388,11 @@ RedisClient::Result RedisClient::readResponse(QString &response, int timeout)
 
     QByteArray data = _socket->readAll();
     
-    // 调试：打印原始响应数据
-
-
     if (!parseResponse(data, response)) {
         _lastError = "Failed to parse Redis response";
         logError(_lastError);
         return Error;
     }
-    
-    // 调试：打印解析后的响应
 
 
     return Success;
@@ -409,7 +404,7 @@ bool RedisClient::parseResponse(const QByteArray &data, QString &result)
         return false;
     }
 
-    // 调试：打印原始数据的十六进制表示
+    // 解析Redis响应数据
 
 
     // 处理混合响应（如 "OK\r\n$6\r\n607496"）

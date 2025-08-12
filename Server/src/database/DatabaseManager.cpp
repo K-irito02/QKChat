@@ -4,7 +4,8 @@
 #include <QThread>
 #include <QCoreApplication>
 #include <QTimer>
-
+#include <QJsonObject>
+#include <functional>
 
 // 静态成员初始化
 DatabaseManager* DatabaseManager::s_instance = nullptr;
@@ -12,10 +13,9 @@ QMutex DatabaseManager::s_mutex;
 
 DatabaseManager::DatabaseManager(QObject *parent)
     : QObject(parent)
-    , _port(3306)
+    , _connectionPool(nullptr)
     , _isConnected(false)
 {
-    _connectionName = QString("QKChat_DB_%1").arg(reinterpret_cast<quintptr>(QThread::currentThreadId()));
 }
 
 DatabaseManager::~DatabaseManager()
@@ -36,42 +36,34 @@ DatabaseManager* DatabaseManager::instance()
 }
 
 bool DatabaseManager::initialize(const QString &host, int port, const QString &database,
-                               const QString &username, const QString &password)
+                               const QString &username, const QString &password,
+                               int minConnections, int maxConnections)
 {
-    QMutexLocker locker(&_queryMutex);
-
-    _host = host;
-    _port = port;
-    _databaseName = database;
-    _username = username;
-    _password = password;
-
-    // 关闭现有连接
-    if (_database.isOpen()) {
-        _database.close();
+    if (_isConnected) {
+        LOG_WARNING("Database manager already initialized");
+        return true;
     }
 
-    // 移除现有连接
-    if (QSqlDatabase::contains(_connectionName)) {
-        QSqlDatabase::removeDatabase(_connectionName);
-    }
+    LOG_INFO(QString("Initializing database manager with connection pool: %1@%2:%3/%4")
+             .arg(username).arg(host).arg(port).arg(database));
 
-    // 创建新的数据库连接
-    _database = QSqlDatabase::addDatabase("QMYSQL", _connectionName);
+    // 获取连接池实例
+    _connectionPool = DatabaseConnectionPool::instance();
 
-    if (!_database.isValid()) {
-        _lastError = "MySQL driver not available";
+    // 配置连接池
+    DatabaseConnectionPool::PoolConfig config;
+    config.host = host;
+    config.port = port;
+    config.database = database;
+    config.username = username;
+    config.password = password;
+    config.minConnections = minConnections;
+    config.maxConnections = maxConnections;
+
+    // 初始化连接池
+    if (!_connectionPool->initialize(config)) {
+        _lastError = "Failed to initialize database connection pool";
         logError(_lastError);
-        return false;
-    }
-
-    setupConnection();
-
-    // 尝试连接
-    if (!_database.open()) {
-        _lastError = _database.lastError().text();
-        logError(QString("Failed to connect to database: %1").arg(_lastError));
-        _isConnected = false;
         emit connectionStateChanged(false);
         return false;
     }
@@ -79,8 +71,6 @@ bool DatabaseManager::initialize(const QString &host, int port, const QString &d
     _isConnected = true;
     _lastError.clear();
 
-    LOG_INFO(QString("Connected to MySQL database: %1@%2:%3/%4")
-             .arg(_username).arg(_host).arg(_port).arg(_databaseName));
 
     emit connectionStateChanged(true);
 
@@ -94,192 +84,129 @@ bool DatabaseManager::initialize(const QString &host, int port, const QString &d
 
 void DatabaseManager::close()
 {
-    QMutexLocker locker(&_queryMutex);
-    
-    if (_database.isOpen()) {
-        _database.close();
-        LOG_INFO("Database connection closed");
+    if (!_isConnected) {
+        return;
     }
-    
-    if (QSqlDatabase::contains(_connectionName)) {
-        QSqlDatabase::removeDatabase(_connectionName);
+
+    LOG_INFO("Closing database manager...");
+
+    if (_connectionPool) {
+        _connectionPool->shutdown();
     }
-    
+
     _isConnected = false;
     emit connectionStateChanged(false);
+
+    LOG_INFO("Database manager closed");
 }
 
 bool DatabaseManager::isConnected() const
 {
-    // 对于只读操作，使用更轻量级的检查
-    return _isConnected && _database.isOpen();
+    return _isConnected && _connectionPool && _connectionPool->isHealthy();
 }
 
 QSqlQuery DatabaseManager::executeQuery(const QString &sql, const QVariantList &params)
 {
-    QMutexLocker locker(&_queryMutex);
-    
     if (!isConnected()) {
-        LOG_WARNING("Database not connected, attempting to reconnect...");
-        if (!reconnect()) {
-            LOG_ERROR("Failed to reconnect to database");
-            QSqlQuery invalidQuery;
-            return invalidQuery;
-        }
+        LOG_ERROR("Database not connected");
+        return QSqlQuery();
     }
-    
-    QSqlQuery query(_database);
-    query.prepare(sql);
-    
-    // 绑定参数
-    for (int i = 0; i < params.size(); ++i) {
-        query.bindValue(i, params[i]);
+
+    // 使用RAII包装器自动管理连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        _lastError = "Failed to acquire database connection";
+        logError(_lastError);
+        return QSqlQuery();
     }
-    
-    if (!query.exec()) {
-        _lastError = query.lastError().text();
-        LOG_ERROR(QString("Query execution failed: %1").arg(_lastError));
-        emit databaseError(_lastError);
-    }
-    
-    return query;
+
+    return dbConn.executeQuery(sql, params);
 }
 
 int DatabaseManager::executeUpdate(const QString &sql, const QVariantList &params)
 {
-    QMutexLocker locker(&_queryMutex);
-    
     if (!isConnected()) {
-        LOG_WARNING("Database not connected, attempting to reconnect...");
-        if (!reconnect()) {
-            LOG_ERROR("Failed to reconnect to database");
-            return -1;
-        }
-    }
-    
-    QSqlQuery query(_database);
-    query.prepare(sql);
-    
-    // 绑定参数
-    for (int i = 0; i < params.size(); ++i) {
-        query.bindValue(i, params[i]);
-    }
-    
-    if (!query.exec()) {
-        _lastError = query.lastError().text();
-        LOG_ERROR(QString("SQL update failed: %1").arg(_lastError));
-        emit databaseError(_lastError);
+        LOG_ERROR("Database not connected");
         return -1;
     }
-    
-    return query.numRowsAffected();
+
+    // 使用RAII包装器自动管理连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        _lastError = "Failed to acquire database connection";
+        logError(_lastError);
+        return -1;
+    }
+
+    return dbConn.executeUpdate(sql, params);
 }
 
-bool DatabaseManager::beginTransaction()
+bool DatabaseManager::executeTransaction(std::function<bool(DatabaseConnection&)> operations)
 {
-    QMutexLocker locker(&_queryMutex);
-    
     if (!isConnected()) {
+        LOG_ERROR("Database not connected");
         return false;
     }
-    
-    bool success = _database.transaction();
-    if (!success) {
-        _lastError = _database.lastError().text();
-        logError(QString("Failed to begin transaction: %1").arg(_lastError));
-    }
-    
-    return success;
-}
 
-bool DatabaseManager::commitTransaction()
-{
-    QMutexLocker locker(&_queryMutex);
-    
-    if (!isConnected()) {
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        _lastError = "Failed to acquire database connection";
+        logError(_lastError);
         return false;
     }
-    
-    bool success = _database.commit();
-    if (!success) {
-        _lastError = _database.lastError().text();
-        logError(QString("Failed to commit transaction: %1").arg(_lastError));
-    }
-    
-    return success;
-}
 
-bool DatabaseManager::rollbackTransaction()
-{
-    QMutexLocker locker(&_queryMutex);
-    
-    if (!isConnected()) {
+    // 开始事务
+    if (!dbConn.beginTransaction()) {
+        _lastError = "Failed to begin transaction";
+        logError(_lastError);
         return false;
     }
-    
-    bool success = _database.rollback();
-    if (!success) {
-        _lastError = _database.lastError().text();
-        logError(QString("Failed to rollback transaction: %1").arg(_lastError));
+
+    // 执行事务操作
+    bool success = false;
+    try {
+        success = operations(dbConn);
+    } catch (const std::exception& e) {
+        _lastError = QString("Transaction operation failed: %1").arg(e.what());
+        logError(_lastError);
+        success = false;
+    } catch (...) {
+        _lastError = "Unknown exception in transaction operation";
+        logError(_lastError);
+        success = false;
     }
-    
-    return success;
+
+    // 提交或回滚事务
+    if (success) {
+        if (dbConn.commitTransaction()) {
+            return true;
+        } else {
+            _lastError = "Failed to commit transaction";
+            logError(_lastError);
+        }
+    }
+
+    // 回滚事务
+    if (!dbConn.rollbackTransaction()) {
+        LOG_ERROR("Failed to rollback transaction");
+    }
+
+    return false;
 }
 
-qint64 DatabaseManager::lastInsertId() const
+qint64 DatabaseManager::lastInsertId(const QSqlDatabase& connection) const
 {
-    QMutexLocker locker(&_queryMutex);
-    
-    QSqlQuery query("SELECT LAST_INSERT_ID()", _database);
+    QSqlQuery query("SELECT LAST_INSERT_ID()", connection);
     if (query.exec() && query.next()) {
         return query.value(0).toLongLong();
     }
-    
     return -1;
 }
 
 QString DatabaseManager::lastError() const
 {
+    QMutexLocker locker(&_errorMutex);
     return _lastError;
-}
-
-bool DatabaseManager::reconnect()
-{
-    LOG_INFO("Attempting to reconnect to database...");
-    
-    if (_database.isOpen()) {
-        _database.close();
-    }
-    
-    setupConnection();
-    
-    if (!_database.open()) {
-        _lastError = _database.lastError().text();
-        logError(QString("Reconnection failed: %1").arg(_lastError));
-        _isConnected = false;
-        emit connectionStateChanged(false);
-        return false;
-    }
-    
-    _isConnected = true;
-    _lastError.clear();
-    
-    LOG_INFO("Database reconnection successful");
-    emit connectionStateChanged(true);
-    
-    return true;
-}
-
-void DatabaseManager::setupConnection()
-{
-    _database.setHostName(_host);
-    _database.setPort(_port);
-    _database.setDatabaseName(_databaseName);
-    _database.setUserName(_username);
-    _database.setPassword(_password);
-    
-    // 设置连接选项，使用较短的超时时间避免阻塞
-    _database.setConnectOptions("MYSQL_OPT_CONNECT_TIMEOUT=3;MYSQL_OPT_READ_TIMEOUT=5;MYSQL_OPT_WRITE_TIMEOUT=5");
 }
 
 void DatabaseManager::logError(const QString &error)
@@ -288,7 +215,17 @@ void DatabaseManager::logError(const QString &error)
     QTimer::singleShot(0, [error]() {
         LOG_ERROR(error);
     });
+    
+    QMutexLocker locker(&_errorMutex);
     _lastError = error;
+}
+
+QJsonObject DatabaseManager::getConnectionPoolStatistics() const
+{
+    if (_connectionPool) {
+        return _connectionPool->getStatistics();
+    }
+    return QJsonObject();
 }
 
 bool DatabaseManager::createTables()
@@ -300,124 +237,131 @@ bool DatabaseManager::createTables()
 
     LOG_INFO("Creating database tables...");
 
-    // 创建用户表
-    QString createUsersTable = R"(
-        CREATE TABLE IF NOT EXISTS users (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            username VARCHAR(50) NOT NULL UNIQUE COMMENT '用户名',
-            email VARCHAR(100) NOT NULL UNIQUE COMMENT '邮箱',
-            password_hash VARCHAR(255) NOT NULL COMMENT '密码哈希',
-            salt VARCHAR(64) NOT NULL COMMENT '盐值',
-            display_name VARCHAR(200) DEFAULT NULL COMMENT '显示名称',
-            avatar_url VARCHAR(512) DEFAULT NULL COMMENT '头像URL',
-            bio TEXT DEFAULT NULL COMMENT '个人简介',
-            status ENUM('active', 'inactive', 'banned', 'deleted') DEFAULT 'inactive' COMMENT '账户状态',
-            email_verified BOOLEAN DEFAULT FALSE COMMENT '邮箱是否已验证',
-            verification_code VARCHAR(10) DEFAULT NULL COMMENT '验证码',
-            verification_expires TIMESTAMP NULL DEFAULT NULL COMMENT '验证码过期时间',
-            last_online TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP COMMENT '最后在线时间',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-            UNIQUE INDEX idx_username (username),
-            UNIQUE INDEX idx_email (email),
-            INDEX idx_status (status),
-            INDEX idx_last_online (last_online),
-            INDEX idx_email_verified (email_verified),
-            INDEX idx_verification_expires (verification_expires),
-            INDEX idx_created_at (created_at),
-            INDEX idx_updated_at (updated_at)
-        ) ENGINE=InnoDB COMMENT='用户表'
-    )";
+    // 使用事务确保表创建的原子性
+    return executeTransaction([this](DatabaseConnection& dbConn) -> bool {
+        
+        // 创建用户表
+        QString createUsersTable = R"(
+            CREATE TABLE IF NOT EXISTS users (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(50) NOT NULL UNIQUE COMMENT '用户名',
+                email VARCHAR(100) NOT NULL UNIQUE COMMENT '邮箱',
+                password_hash VARCHAR(255) NOT NULL COMMENT '密码哈希',
+                salt VARCHAR(64) NOT NULL COMMENT '盐值',
+                display_name VARCHAR(200) DEFAULT NULL COMMENT '显示名称',
+                avatar_url VARCHAR(512) DEFAULT NULL COMMENT '头像URL',
+                bio TEXT DEFAULT NULL COMMENT '个人简介',
+                status ENUM('active', 'inactive', 'banned', 'deleted') DEFAULT 'inactive' COMMENT '账户状态',
+                email_verified BOOLEAN DEFAULT FALSE COMMENT '邮箱是否已验证',
+                verification_code VARCHAR(10) DEFAULT NULL COMMENT '验证码',
+                verification_expires TIMESTAMP NULL DEFAULT NULL COMMENT '验证码过期时间',
+                last_online TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP COMMENT '最后在线时间',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+                UNIQUE INDEX idx_username (username),
+                UNIQUE INDEX idx_email (email),
+                INDEX idx_status (status),
+                INDEX idx_last_online (last_online),
+                INDEX idx_email_verified (email_verified),
+                INDEX idx_verification_expires (verification_expires),
+                INDEX idx_created_at (created_at),
+                INDEX idx_updated_at (updated_at)
+            ) ENGINE=InnoDB COMMENT='用户表'
+        )";
 
-    if (executeUpdate(createUsersTable) == -1) {
-        LOG_ERROR("Failed to create users table");
-        return false;
-    }
+        if (dbConn.executeUpdate(createUsersTable) == -1) {
+            LOG_ERROR("Failed to create users table");
+            return false;
+        }
 
-    // 创建验证码表
-    QString createVerificationCodesTable = R"(
-        CREATE TABLE IF NOT EXISTS verification_codes (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            email VARCHAR(100) NOT NULL COMMENT '邮箱地址',
-            code VARCHAR(10) NOT NULL COMMENT '验证码',
-            type ENUM('registration', 'password_reset', 'email_change') DEFAULT 'registration' COMMENT '验证码类型',
-            expires_at TIMESTAMP NOT NULL COMMENT '过期时间',
-            used_at TIMESTAMP NULL DEFAULT NULL COMMENT '使用时间',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-            INDEX idx_email (email),
-            INDEX idx_code (code),
-            INDEX idx_type (type),
-            INDEX idx_expires_at (expires_at),
-            INDEX idx_used_at (used_at),
-            INDEX idx_email_type_expires (email, type, expires_at)
-        ) ENGINE=InnoDB COMMENT='验证码表'
-    )";
+        // 创建验证码表
+        QString createVerificationCodesTable = R"(
+            CREATE TABLE IF NOT EXISTS verification_codes (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                email VARCHAR(100) NOT NULL COMMENT '邮箱地址',
+                code VARCHAR(10) NOT NULL COMMENT '验证码',
+                type ENUM('registration', 'password_reset', 'email_change') DEFAULT 'registration' COMMENT '验证码类型',
+                expires_at TIMESTAMP NOT NULL COMMENT '过期时间',
+                used_at TIMESTAMP NULL DEFAULT NULL COMMENT '使用时间',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                INDEX idx_email (email),
+                INDEX idx_code (code),
+                INDEX idx_type (type),
+                INDEX idx_expires_at (expires_at),
+                INDEX idx_used_at (used_at),
+                INDEX idx_email_type_expires (email, type, expires_at)
+            ) ENGINE=InnoDB COMMENT='验证码表'
+        )";
 
-    if (executeUpdate(createVerificationCodesTable) == -1) {
-        LOG_ERROR("Failed to create verification_codes table");
-        return false;
-    }
+        if (dbConn.executeUpdate(createVerificationCodesTable) == -1) {
+            LOG_ERROR("Failed to create verification_codes table");
+            return false;
+        }
 
-    // 创建用户会话表
-    QString createSessionsTable = R"(
-        CREATE TABLE IF NOT EXISTS user_sessions (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            user_id BIGINT UNSIGNED NOT NULL,
-            session_token VARCHAR(128) NOT NULL UNIQUE COMMENT '会话令牌',
-            refresh_token VARCHAR(128) DEFAULT NULL COMMENT '刷新令牌',
-            device_info VARCHAR(500) DEFAULT NULL COMMENT '设备信息',
-            ip_address VARCHAR(45) DEFAULT NULL COMMENT 'IP地址',
-            user_agent TEXT DEFAULT NULL COMMENT '用户代理',
-            expires_at TIMESTAMP NOT NULL COMMENT '过期时间',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后活动时间',
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            INDEX idx_user_id (user_id),
-            INDEX idx_session_token (session_token),
-            INDEX idx_expires_at (expires_at),
-            INDEX idx_user_expires (user_id, expires_at)
-        ) ENGINE=InnoDB COMMENT='用户会话表'
-    )";
+        // 创建用户会话表
+        QString createSessionsTable = R"(
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT UNSIGNED NOT NULL,
+                session_token VARCHAR(128) NOT NULL UNIQUE COMMENT '会话令牌',
+                refresh_token VARCHAR(128) DEFAULT NULL COMMENT '刷新令牌',
+                device_info VARCHAR(500) DEFAULT NULL COMMENT '设备信息',
+                ip_address VARCHAR(45) DEFAULT NULL COMMENT 'IP地址',
+                user_agent TEXT DEFAULT NULL COMMENT '用户代理',
+                expires_at TIMESTAMP NOT NULL COMMENT '过期时间',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后活动时间',
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                INDEX idx_user_id (user_id),
+                INDEX idx_session_token (session_token),
+                INDEX idx_expires_at (expires_at),
+                INDEX idx_user_expires (user_id, expires_at)
+            ) ENGINE=InnoDB COMMENT='用户会话表'
+        )";
 
-    LOG_INFO("Creating sessions table...");
-    if (executeUpdate(createSessionsTable) == -1) {
-        LOG_ERROR("Failed to create sessions table");
-        return false;
-    }
+        if (dbConn.executeUpdate(createSessionsTable) == -1) {
+            LOG_ERROR("Failed to create sessions table");
+            return false;
+        }
 
-    // 创建登录日志表
-    QString createLoginLogsTable = R"(
-        CREATE TABLE IF NOT EXISTS login_logs (
-            id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            user_id BIGINT UNSIGNED,
-            username VARCHAR(50),
-            email VARCHAR(100),
-            success BOOLEAN NOT NULL,
-            ip_address VARCHAR(45),
-            user_agent TEXT,
-            error_message TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_user_id (user_id),
-            INDEX idx_success (success),
-            INDEX idx_created_at (created_at),
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
-        ) ENGINE=InnoDB COMMENT='登录日志表'
-    )";
+        // 创建登录日志表
+        QString createLoginLogsTable = R"(
+            CREATE TABLE IF NOT EXISTS login_logs (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT UNSIGNED,
+                username VARCHAR(50),
+                email VARCHAR(100),
+                success BOOLEAN NOT NULL,
+                ip_address VARCHAR(45),
+                user_agent TEXT,
+                error_message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user_id (user_id),
+                INDEX idx_success (success),
+                INDEX idx_created_at (created_at),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+            ) ENGINE=InnoDB COMMENT='登录日志表'
+        )";
 
-    if (executeUpdate(createLoginLogsTable) == -1) {
-        LOG_ERROR("Failed to create login_logs table");
-        return false;
-    }
+        if (dbConn.executeUpdate(createLoginLogsTable) == -1) {
+            LOG_ERROR("Failed to create login_logs table");
+            return false;
+        }
 
-    return true;
+    
+        return true;
+    });
 }
-
-
 
 bool DatabaseManager::tableExists(const QString &tableName)
 {
-    QString sql = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ? AND table_name = ?";
-    QSqlQuery query = executeQuery(sql, {_databaseName, tableName});
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        return false;
+    }
+
+    QString sql = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?";
+    QSqlQuery query = dbConn.executeQuery(sql, {tableName});
 
     if (query.next()) {
         return query.value(0).toInt() > 0;
@@ -428,7 +372,12 @@ bool DatabaseManager::tableExists(const QString &tableName)
 
 QString DatabaseManager::getDatabaseVersion()
 {
-    QSqlQuery query = executeQuery("SELECT VERSION()");
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        return "Unknown";
+    }
+
+    QSqlQuery query = dbConn.executeQuery("SELECT VERSION()");
     if (query.next()) {
         return query.value(0).toString();
     }
@@ -437,37 +386,52 @@ QString DatabaseManager::getDatabaseVersion()
 
 bool DatabaseManager::testConnection()
 {
-    QSqlQuery query = executeQuery("SELECT 1");
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        return false;
+    }
+
+    QSqlQuery query = dbConn.executeQuery("SELECT 1");
     return !query.lastError().isValid();
+}
+
+QSqlDatabase DatabaseManager::getConnection()
+{
+    if (_connectionPool) {
+        return _connectionPool->acquireConnection();
+    }
+    return QSqlDatabase();
 }
 
 bool DatabaseManager::optimizeDatabase()
 {
     LOG_INFO("Optimizing database...");
 
-    QStringList tables = {"users", "verification_codes", "sessions", "login_logs"};
+    return executeTransaction([this](DatabaseConnection& dbConn) -> bool {
+        QStringList tables = {"users", "verification_codes", "user_sessions", "login_logs"};
 
-    for (const QString &table : tables) {
-        if (tableExists(table)) {
-            QString sql = QString("OPTIMIZE TABLE %1").arg(table);
-            if (executeUpdate(sql) == -1) {
-                LOG_WARNING(QString("Failed to optimize table: %1").arg(table));
+        for (const QString &table : tables) {
+            if (tableExists(table)) {
+                QString sql = QString("OPTIMIZE TABLE %1").arg(table);
+                if (dbConn.executeUpdate(sql) == -1) {
+                    LOG_WARNING(QString("Failed to optimize table: %1").arg(table));
+                }
             }
         }
-    }
 
-    // 清理过期的验证码
-    QString cleanupCodes = "DELETE FROM verification_codes WHERE expires_at < NOW()";
-    executeUpdate(cleanupCodes);
+        // 清理过期的验证码
+        QString cleanupCodes = "DELETE FROM verification_codes WHERE expires_at < NOW()";
+        dbConn.executeUpdate(cleanupCodes);
 
-    // 清理过期的会话
-    QString cleanupSessions = "DELETE FROM sessions WHERE expires_at < NOW()";
-    executeUpdate(cleanupSessions);
+        // 清理过期的会话
+        QString cleanupSessions = "DELETE FROM user_sessions WHERE expires_at < NOW()";
+        dbConn.executeUpdate(cleanupSessions);
 
-    // 清理旧的登录日志（保留30天）
-    QString cleanupLogs = "DELETE FROM login_logs WHERE created_at < DATE_SUB(NOW(), INTERVAL 30 DAY)";
-    executeUpdate(cleanupLogs);
+        // 清理旧的登录日志（保留30天）
+        QString cleanupLogs = "DELETE FROM login_logs WHERE created_at < DATE_SUB(NOW(), INTERVAL 30 DAY)";
+        dbConn.executeUpdate(cleanupLogs);
 
-    LOG_INFO("Database optimization completed");
-    return true;
+    
+        return true;
+    });
 }

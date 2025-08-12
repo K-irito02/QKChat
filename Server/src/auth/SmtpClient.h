@@ -12,7 +12,7 @@
  * @brief SMTP客户端类
  * 
  * 实现真实的SMTP协议邮件发送功能，支持TLS加密和SMTP认证。
- * 提供异步发送、重试机制和错误处理功能。
+ * 提供异步发送和错误处理功能。
  */
 class SmtpClient : public QObject
 {
@@ -45,10 +45,9 @@ public:
         bool isHtml;
         QStringList attachments;
         QString messageId;
-        int retryCount;
         bool isVerificationCode;  // 标识是否为验证码邮件
         
-        EmailMessage() : isHtml(false), retryCount(0), isVerificationCode(false) {}
+        EmailMessage() : isHtml(false), isVerificationCode(false) {}
     };
 
     explicit SmtpClient(QObject *parent = nullptr);
@@ -103,11 +102,7 @@ public:
      */
     void setConnectionTimeout(int timeout) { _connectionTimeout = timeout; }
     
-    /**
-     * @brief 设置最大重试次数
-     * @param maxRetries 最大重试次数
-     */
-    void setMaxRetries(int maxRetries) { _maxRetries = maxRetries; }
+    // 移除重试机制，由客户端控制重试
     
     /**
      * @brief 连接到SMTP服务器
@@ -197,10 +192,7 @@ private:
      */
     void finishCurrentEmail(bool success, const QString &error = "");
     
-    /**
-     * @brief 重试当前邮件
-     */
-    void retryCurrentEmail();
+    // 移除重试机制，由客户端控制重试
     
     /**
      * @brief 设置状态
@@ -261,13 +253,13 @@ private:
     
     // 配置参数
     int _connectionTimeout;
-    int _maxRetries;
     
     // SMTP会话状态
     bool _tlsStarted;
     bool _authenticated;
     QString _serverCapabilities;
     int _authStep;  // 认证步骤：0=AUTH LOGIN, 1=用户名, 2=密码
+    int _sendingStep; // 邮件发送步骤：0: MAIL FROM, 1: RCPT TO, 2: DATA, 3: Content
 };
 
 #endif // SMTPCLIENT_H

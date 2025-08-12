@@ -394,7 +394,7 @@ void ConfigManager::onReloadTimer()
         LOG_INFO("Configuration file changed, reloading...");
 
         if (reloadConfig()) {
-            LOG_INFO("Configuration reloaded successfully");
+        
         } else {
             LOG_ERROR("Failed to reload configuration");
             emit configError("Failed to reload configuration file");

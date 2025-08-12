@@ -204,7 +204,7 @@ void Logger::writeLog(LogLevel level, const QString &message,
     
     // 输出到控制台
     if (s_consoleOutput) {
-        // 控制台输出已禁用，避免调试信息干扰
+        std::cout << formattedMessage.toStdString() << std::endl;
     }
 }
 

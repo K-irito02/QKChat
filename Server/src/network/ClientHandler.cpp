@@ -8,6 +8,8 @@
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QCryptographicHash>
+#include <QThread>
+#include <QApplication>
 
 // 静态成员初始化
 int ClientHandler::s_clientCounter = 0;
@@ -17,7 +19,7 @@ ClientHandler::ClientHandler(qintptr socketDescriptor, ProtocolHandler *protocol
     , _socket(nullptr)
     , _protocolHandler(protocolHandler)
     , _userId(-1)
-    , _state(Connected)
+    , _state(Initialized)  // 初始状态为Initialized
     , _heartbeatTimeout(60000) // 60秒
     , _useTLS(useTLS)
     , _messagesSent(0)
@@ -30,35 +32,76 @@ ClientHandler::ClientHandler(qintptr socketDescriptor, ProtocolHandler *protocol
     _connectTime = QDateTime::currentDateTime();
     _lastActivity = _connectTime;
     
-    // 创建SSL套接字
-    _socket = new QSslSocket(this);
-    
-    // 连接信号
-    connect(_socket, &QSslSocket::connected, this, &ClientHandler::onConnected);
-    connect(_socket, &QSslSocket::disconnected, this, &ClientHandler::onDisconnected);
-    connect(_socket, &QSslSocket::readyRead, this, &ClientHandler::onReadyRead);
-    connect(_socket, QOverload<QAbstractSocket::SocketError>::of(&QSslSocket::errorOccurred),
-            this, &ClientHandler::onSocketError);
-    connect(_socket, QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),
-            this, &ClientHandler::onSslErrors);
+    // 根据配置创建套接字
+    if (_useTLS) {
+        QSslSocket* sslSocket = new QSslSocket(this);
+        _socket = sslSocket;
+        
+        // 连接SSL套接字信号
+        connect(sslSocket, &QSslSocket::connected, this, &ClientHandler::onConnected);
+        connect(sslSocket, &QSslSocket::disconnected, this, &ClientHandler::onDisconnected);
+        connect(sslSocket, &QSslSocket::readyRead, this, &ClientHandler::onReadyRead);
+        connect(sslSocket, QOverload<QAbstractSocket::SocketError>::of(&QSslSocket::errorOccurred),
+                this, &ClientHandler::onSocketError);
+        connect(sslSocket, QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),
+                this, &ClientHandler::onSslErrors);
+    } else {
+        QTcpSocket* tcpSocket = new QTcpSocket(this);
+        _socket = tcpSocket;
+        
+        // 连接普通TCP套接字信号
+        connect(tcpSocket, &QTcpSocket::connected, this, &ClientHandler::onConnected);
+        connect(tcpSocket, &QTcpSocket::disconnected, this, &ClientHandler::onDisconnected);
+        connect(tcpSocket, &QTcpSocket::readyRead, this, &ClientHandler::onReadyRead);
+        connect(tcpSocket, QOverload<QAbstractSocket::SocketError>::of(&QTcpSocket::errorOccurred),
+                this, &ClientHandler::onSocketError);
+    }
     
     // 设置套接字描述符
-    if (!_socket->setSocketDescriptor(socketDescriptor)) {
-        LOG_ERROR(QString("Failed to set socket descriptor for client %1").arg(_clientId));
+    if (!_socket) {
+        LOG_ERROR(QString("Socket is null for client %1").arg(_clientId));
         setState(Error);
         return;
     }
     
-
+    if (!_socket->setSocketDescriptor(socketDescriptor)) {
+        LOG_ERROR(QString("Failed to set socket descriptor for client %1: %2").arg(_clientId).arg(_socket->errorString()));
+        setState(Error);
+        return;
+    }
+    
+    LOG_INFO(QString("Client handler created: %1").arg(_clientId));
 }
 
 ClientHandler::~ClientHandler()
 {
-    if (_socket && _socket->state() != QAbstractSocket::UnconnectedState) {
-        _socket->disconnectFromHost();
+    // 断开所有信号连接，避免在析构过程中触发信号
+    disconnect();
+    
+    // 断开网络连接
+    if (_socket) {
+        // 先断开信号连接
+        _socket->disconnect();
+        
+        if (_socket->state() != QAbstractSocket::UnconnectedState) {
+            _socket->disconnectFromHost();
+            // 等待断开连接，但不要无限等待
+            if (!_socket->waitForDisconnected(1000)) {
+                LOG_WARNING(QString("Socket disconnect timeout for client %1").arg(_clientId));
+            }
+        }
+        
+        // 删除套接字对象
+        _socket->deleteLater();
+        _socket = nullptr;
     }
     
-
+    // 清理协议处理器连接
+    if (_protocolHandler) {
+        // 断开与协议处理器的连接
+        QObject::disconnect(_protocolHandler, nullptr, this, nullptr);
+        _protocolHandler = nullptr;
+    }
 }
 
 QHostAddress ClientHandler::peerAddress() const
@@ -132,6 +175,11 @@ void ClientHandler::disconnect(const QString &reason)
 
 bool ClientHandler::setTlsCertificate(const QString &certFile, const QString &keyFile)
 {
+    if (!_useTLS) {
+        LOG_WARNING(QString("TLS certificate requested but TLS is disabled for client %1").arg(_clientId));
+        return false;
+    }
+    
     _certFile = certFile;
     _keyFile = keyFile;
     
@@ -166,12 +214,17 @@ bool ClientHandler::setTlsCertificate(const QString &certFile, const QString &ke
         return false;
     }
     
-    // 设置证书和私钥
-    _socket->setLocalCertificate(certificate);
-    _socket->setPrivateKey(privateKey);
-    
-
-    return true;
+    // 设置证书和私钥（需要转换为QSslSocket）
+    QSslSocket* sslSocket = qobject_cast<QSslSocket*>(_socket);
+    if (sslSocket) {
+        sslSocket->setLocalCertificate(certificate);
+        sslSocket->setPrivateKey(privateKey);
+        LOG_INFO(QString("TLS certificate set for client %1").arg(_clientId));
+        return true;
+    } else {
+        LOG_ERROR(QString("Socket is not SSL socket for client %1").arg(_clientId));
+        return false;
+    }
 }
 
 void ClientHandler::setHeartbeatTimeout(int timeout)
@@ -226,7 +279,7 @@ void ClientHandler::onConnected()
     
     // 记录连接信息
     if (_useTLS) {
-        LOG_INFO(QString("SSL temporarily disabled for client %1 - using plain TCP connection").arg(_clientId));
+        LOG_INFO(QString("Using SSL connection for client %1").arg(_clientId));
     } else {
         LOG_INFO(QString("Using plain TCP connection for client %1").arg(_clientId));
     }
@@ -236,9 +289,12 @@ void ClientHandler::onConnected()
 
 void ClientHandler::onDisconnected()
 {
-    setState(Disconnected);
-    LOG_INFO(QString("Client disconnected: %1").arg(_clientId));
-    emit disconnected();
+    // 避免在已断开状态下重复发射信号
+    if (_state != Disconnected) {
+        setState(Disconnected);
+        LOG_INFO(QString("Client disconnected: %1").arg(_clientId));
+        emit disconnected();
+    }
 }
 
 void ClientHandler::onReadyRead()
@@ -256,12 +312,20 @@ void ClientHandler::onSocketError(QAbstractSocket::SocketError error)
     QString errorString = _socket->errorString();
     LOG_ERROR(QString("Socket error for client %1: %2").arg(_clientId).arg(errorString));
     
-    setState(Error);
-    emit clientError(errorString);
+    // 避免在错误状态下重复发射信号
+    if (_state != Error) {
+        setState(Error);
+        emit clientError(errorString);
+    }
 }
 
 void ClientHandler::onSslErrors(const QList<QSslError> &errors)
 {
+    if (!_useTLS) {
+        LOG_WARNING(QString("SSL errors received but TLS is disabled for client %1").arg(_clientId));
+        return;
+    }
+    
     QStringList errorStrings;
     
     for (const QSslError &error : errors) {
@@ -274,11 +338,28 @@ void ClientHandler::onSslErrors(const QList<QSslError> &errors)
     LOG_WARNING(QString("SSL errors detected for client %1: %2").arg(_clientId).arg(errorString));
     
     // 在生产环境中，应该根据具体的SSL错误决定是否忽略
-    _socket->ignoreSslErrors();
+    QSslSocket* sslSocket = qobject_cast<QSslSocket*>(_socket);
+    if (sslSocket) {
+        sslSocket->ignoreSslErrors();
+    } else {
+        LOG_ERROR(QString("Socket is not SSL socket for client %1").arg(_clientId));
+    }
+}
+
+void ClientHandler::onProtocolUserLoggedIn(qint64 userId, const QString &clientId, const QString &sessionToken)
+{
+    Q_UNUSED(clientId)
+    Q_UNUSED(sessionToken)
+    _userId = userId;
+    setState(Authenticated);
+    emit authenticated(userId);
 }
 
 void ClientHandler::processReceivedData(const QByteArray &data)
 {
+    // Processing received data
+    LOG_INFO(QString("Client: %1, Received data size: %2 bytes").arg(_clientId).arg(data.size()));
+    
     QByteArray buffer = data; // 创建可修改的副本
     while (buffer.size() >= 4) {
         // 读取消息长度（前4字节）
@@ -288,14 +369,20 @@ void ClientHandler::processReceivedData(const QByteArray &data)
         quint32 messageLength;
         stream >> messageLength;
         
+        LOG_INFO(QString("Message length: %1 bytes, Buffer size: %2 bytes").arg(messageLength).arg(buffer.size()));
+        
         // 检查是否接收到完整消息
         if (buffer.size() < 4 + messageLength) {
+            LOG_INFO(QString("Incomplete message, waiting for more data. Need: %1, Have: %2")
+                    .arg(4 + messageLength).arg(buffer.size()));
             break; // 等待更多数据
         }
         
         // 提取消息数据
         QByteArray messageData = buffer.mid(4, messageLength);
         buffer.remove(0, 4 + messageLength);
+        
+        LOG_INFO(QString("Extracted message data: %1 bytes").arg(messageData.size()));
         
         // 解析JSON消息
         QJsonParseError parseError;
@@ -314,29 +401,42 @@ void ClientHandler::processReceivedData(const QByteArray &data)
         }
         
         QJsonObject message = doc.object();
-        _messagesReceived++;
+        QString action = message["action"].toString();
+        QString requestId = message["request_id"].toString();
         
-    
+        LOG_INFO(QString("Parsed message - Action: %1, RequestID: %2").arg(action).arg(requestId));
+        
+        _messagesReceived++;
         
         processMessage(message);
     }
+    
+    // Data processing completed
 }
 
 void ClientHandler::processMessage(const QJsonObject &message)
 {
     QString action = message["action"].toString();
+    QString requestId = message["request_id"].toString();
+    
+    // Processing message
+    LOG_INFO(QString("Action: %1, RequestID: %2, ClientState: %3").arg(action).arg(requestId).arg(static_cast<int>(_state)));
 
     // 处理心跳消息
     if (action == "heartbeat") {
+        LOG_INFO("Processing heartbeat message");
         handleHeartbeat(message);
         return;
     }
 
-    // 处理认证消息
-    if (action == "login" || action == "register" || action == "send_verification_code") {
+    // 处理认证消息（包括可用性检查）
+    if (action == "login" || action == "register" || action == "send_verification_code" || 
+        action == "check_username" || action == "check_email") {
+        LOG_INFO("Processing authentication message");
         if (_state == Connected || _state == Authenticating) {
             handleAuthRequest(message);
         } else {
+            LOG_WARNING(QString("Invalid state for authentication: %1").arg(static_cast<int>(_state)));
             sendErrorResponse(message["request_id"].toString(), "Invalid state for authentication");
         }
         return;
@@ -344,12 +444,16 @@ void ClientHandler::processMessage(const QJsonObject &message)
 
     // 其他消息需要先认证
     if (!isAuthenticated()) {
+        LOG_WARNING("Message requires authentication but user is not authenticated");
         sendErrorResponse(message["request_id"].toString(), "Authentication required");
         return;
     }
 
     // 处理已认证用户的消息
+    LOG_INFO("Emitting messageReceived signal for authenticated user");
     emit messageReceived(message);
+    
+    // Message processing completed
 }
 
 void ClientHandler::handleAuthRequest(const QJsonObject &message)
@@ -363,16 +467,13 @@ void ClientHandler::handleAuthRequest(const QJsonObject &message)
         return;
     }
 
+    // 断开之前的连接，避免重复连接
+    QObject::disconnect(_protocolHandler, &ProtocolHandler::userLoggedIn, this, nullptr);
+
     // 连接协议处理器的信号（每个ClientHandler实例都需要连接）
     // 使用Qt::UniqueConnection确保不会重复连接
     connect(_protocolHandler, &ProtocolHandler::userLoggedIn,
-            this, [this](qint64 userId, const QString &clientId, const QString &sessionToken) {
-                Q_UNUSED(clientId)
-                Q_UNUSED(sessionToken)
-                _userId = userId;
-                setState(Authenticated);
-                emit authenticated(userId);
-            }, Qt::UniqueConnection);
+            this, &ClientHandler::onProtocolUserLoggedIn, Qt::UniqueConnection);
 
     // 处理消息并获取响应
     QJsonObject response = _protocolHandler->handleMessage(message, _clientId, peerAddress().toString());
@@ -451,4 +552,45 @@ QString ClientHandler::generateClientId()
     return QString("client_%1_%2")
            .arg(QDateTime::currentMSecsSinceEpoch())
            .arg(++s_clientCounter);
+}
+
+void ClientHandler::startProcessing()
+{
+    if (_state != Initialized) {
+        LOG_WARNING(QString("Cannot start processing for client %1: invalid state").arg(_clientId));
+        return;
+    }
+    
+    // 检查套接字状态
+    if (!_socket || _socket->state() != QAbstractSocket::ConnectedState) {
+        LOG_ERROR(QString("Socket not connected for client %1").arg(_clientId));
+        setState(Error);
+        return;
+    }
+    
+    setState(Connected);
+    
+    // 发送连接成功信号
+    emit connected();
+}
+
+// 线程安全的信号发射方法
+void ClientHandler::emitConnected()
+{
+    emit connected();
+}
+
+void ClientHandler::emitDisconnected()
+{
+    emit disconnected();
+}
+
+void ClientHandler::emitAuthenticated(qint64 userId)
+{
+    emit authenticated(userId);
+}
+
+void ClientHandler::emitMessageReceived(const QJsonObject &message)
+{
+    emit messageReceived(message);
 }

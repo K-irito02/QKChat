@@ -67,26 +67,50 @@ set(PROJECT_SOURCES
         # 数据库模块
         src/database/DatabaseManager.h
         src/database/DatabaseManager.cpp
+        src/database/DatabaseConnectionPool.h
+        src/database/DatabaseConnectionPool.cpp
         src/database/RedisClient.h
         src/database/RedisClient.cpp
 
         # 认证模块
         src/auth/UserService.h
         src/auth/UserService.cpp
+        src/auth/AuthCache.h
+        src/auth/AuthCache.cpp
         src/auth/EmailService.h
         src/auth/EmailService.cpp
         src/auth/SmtpClient.h
         src/auth/SmtpClient.cpp
         src/auth/VerificationCodeManager.h
         src/auth/VerificationCodeManager.cpp
+        src/auth/UserIdGenerator.h
+        src/auth/UserIdGenerator.cpp
+        src/auth/UserRegistrationService.h
+        src/auth/UserRegistrationService.cpp
 
         # 网络模块
         src/network/TcpServer.h
         src/network/TcpServer.cpp
+        src/network/ThreadPoolServer.h
+        src/network/ThreadPoolServer.cpp
+        src/network/AsyncMessageQueue.h
+        src/network/AsyncMessageQueue.cpp
+        src/network/MessageWorker.h
+        src/network/MessageWorker.cpp
         src/network/ClientHandler.h
         src/network/ClientHandler.cpp
         src/network/ProtocolHandler.h
         src/network/ProtocolHandler.cpp
+
+        # 聊天模块
+        src/chat/FriendService.h
+        src/chat/FriendService.cpp
+        src/chat/OnlineStatusService.h
+        src/chat/OnlineStatusService.cpp
+        src/chat/MessageService.h
+        src/chat/MessageService.cpp
+        src/chat/ChatProtocolHandler.h
+        src/chat/ChatProtocolHandler.cpp
 
         # 模型类
         src/models/User.h
@@ -99,6 +123,7 @@ set(PROJECT_SOURCES
         src/utils/Crypto.cpp
         src/utils/Validator.h
         src/utils/Validator.cpp
+        src/utils/ThreadSafeSingleton.h
 
         # 服务器管理器
         src/ServerManager.h

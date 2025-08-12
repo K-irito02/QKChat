@@ -42,7 +42,7 @@ QtObject {
     // 保存主题设置
     function saveTheme(isDark) {
         isDarkTheme = isDark
-        console.log("Theme saved:", isDark)
+        // Theme saved
     }
 
     // 保存登录信息
@@ -54,14 +54,14 @@ QtObject {
         } else {
             clearLoginInfo()
         }
-        console.log("Login info saved:", username, remember)
+        // Login info saved
     }
 
     // 清除登录信息
     function clearLoginInfo() {
         savedUsername = ""
         savedPasswordHash = ""
-        console.log("Login info cleared")
+        // Login info cleared
     }
 
     // 保存窗口设置
@@ -70,7 +70,7 @@ QtObject {
         windowHeight = height
         windowX = x
         windowY = y
-        console.log("Window settings saved:", width, height, x, y)
+        // Window settings saved
     }
 
     // 保存网络设置
@@ -78,24 +78,24 @@ QtObject {
         serverHost = host
         serverPort = port
         autoConnect = autoConn
-        console.log("Network settings saved:", host, port, autoConn)
+        // Network settings saved
     }
 
     // 保存语言设置
     function saveLanguage(lang) {
         language = lang
-        console.log("Language saved:", lang)
+        // Language saved
     }
 
     // 获取设置值
     function getValue(key, defaultValue) {
-        console.log("Getting value for key:", key, "default:", defaultValue)
+        // Getting setting value
         return defaultValue
     }
 
     // 设置值
     function setValue(key, value) {
-        console.log("Setting value for key:", key, "value:", value)
+        // Setting value
     }
 
     // 重置所有设置
@@ -113,7 +113,7 @@ QtObject {
         autoConnect = true
         serverHost = "localhost"
         serverPort = 8080
-        console.log("Settings reset to defaults")
+        // Settings reset to defaults
     }
 
     // 导出设置

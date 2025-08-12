@@ -5,12 +5,17 @@
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QSet>
+#include <QMap>
 #include <QTimer>
 #include <QMutex>
+#include <QDateTime>
 #include "../auth/UserService.h"
 #include "../auth/EmailService.h"
 #include "../auth/VerificationCodeManager.h"
 #include "../database/RedisClient.h"
+
+// 前向声明
+class ChatProtocolHandler;
 
 /**
  * @brief 协议处理器类
@@ -31,8 +36,10 @@ public:
         Login,
         Register,
         SendVerificationCode,
+        CheckUsername,
+        CheckEmail,
         Heartbeat,
-        Logout
+        Chat
     };
     Q_ENUM(MessageType)
 
@@ -76,6 +83,24 @@ public:
     QJsonObject handleVerificationCodeRequest(const QJsonObject &request, const QString &clientId, const QString &clientIP);
     
     /**
+     * @brief 处理检查用户名可用性请求
+     * @param request 请求数据
+     * @param clientId 客户端ID
+     * @param clientIP 客户端IP
+     * @return 响应数据
+     */
+    QJsonObject handleCheckUsernameRequest(const QJsonObject &request, const QString &clientId, const QString &clientIP);
+    
+    /**
+     * @brief 处理检查邮箱可用性请求
+     * @param request 请求数据
+     * @param clientId 客户端ID
+     * @param clientIP 客户端IP
+     * @return 响应数据
+     */
+    QJsonObject handleCheckEmailRequest(const QJsonObject &request, const QString &clientId, const QString &clientIP);
+    
+    /**
      * @brief 处理心跳请求
      * @param request 心跳请求
      * @param clientId 客户端ID
@@ -91,6 +116,15 @@ public:
      * @return 登出响应
      */
     QJsonObject handleLogoutRequest(const QJsonObject &request, const QString &clientId, qint64 userId);
+
+    /**
+     * @brief 处理聊天消息
+     * @param request 聊天请求
+     * @param clientId 客户端ID
+     * @param clientIP 客户端IP地址
+     * @return 聊天响应
+     */
+    QJsonObject handleChatMessage(const QJsonObject &request, const QString &clientId, const QString &clientIP);
     
     /**
      * @brief 验证请求格式
@@ -189,9 +223,11 @@ private:
     UserService* _userService;
     EmailService* _emailService;
     RedisClient* _redisClient;
-    
+    ChatProtocolHandler* _chatHandler;  // 聊天协议处理器
+
     // 请求去重机制
     QSet<QString> _processedRequests;  // 已处理的请求ID集合
+    QMap<QString, QDateTime> _processedRequestsTime;  // 请求处理时间映射
     QMutex _requestMutex;              // 请求处理互斥锁
     QTimer* _cleanupTimer;             // 定期清理过期请求ID的定时器
 };

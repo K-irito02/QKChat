@@ -3,7 +3,7 @@
     "port": 8080,
     "max_clients": 1000,
     "heartbeat_interval": 30000,
-    "use_tls": true
+    "use_tls": false
   },
   "database": {
     "host": "localhost",

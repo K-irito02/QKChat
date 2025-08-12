@@ -1,7 +1,9 @@
 #include "ProtocolHandler.h"
+#include "../chat/ChatProtocolHandler.h"
 #include "../utils/Logger.h"
 #include "../utils/Crypto.h"
 #include "../utils/Validator.h"
+#include "../auth/UserRegistrationService.h"
 #include <QDateTime>
 #include <QSqlQuery>
 #include <QMutexLocker>
@@ -11,6 +13,7 @@ ProtocolHandler::ProtocolHandler(EmailService *emailService, QObject *parent)
     , _userService(new UserService(this))
     , _emailService(emailService)
     , _redisClient(RedisClient::instance())
+    , _chatHandler(ChatProtocolHandler::instance())
     , _cleanupTimer(new QTimer(this))
 {
     // 如果没有提供EmailService，创建一个新的实例（向后兼容）
@@ -19,13 +22,25 @@ ProtocolHandler::ProtocolHandler(EmailService *emailService, QObject *parent)
     }
     
     // 初始化请求去重机制
-    // 每5分钟清理一次过期的请求ID，防止内存泄漏
-    _cleanupTimer->setInterval(5 * 60 * 1000); // 5分钟
+    // 每30分钟清理一次过期的请求ID，防止内存泄漏
+    // 增加清理间隔，避免过早清理导致重复处理
+    _cleanupTimer->setInterval(30 * 60 * 1000); // 30分钟
     connect(_cleanupTimer, &QTimer::timeout, this, [this]() {
         QMutexLocker locker(&_requestMutex);
         int beforeCount = _processedRequests.size();
-        _processedRequests.clear();
-        LOG_INFO(QString("Cleaned up processed requests cache: %1 requests").arg(beforeCount));
+        // 只清理超过1小时的请求记录，保留最近的请求记录
+        QDateTime oneHourAgo = QDateTime::currentDateTime().addSecs(-3600);
+        auto it = _processedRequestsTime.begin();
+        while (it != _processedRequestsTime.end()) {
+            if (it.value() < oneHourAgo) {
+                _processedRequests.remove(it.key());
+                it = _processedRequestsTime.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        int afterCount = _processedRequests.size();
+        LOG_INFO(QString("Cleaned up processed requests cache: %1 -> %2 requests").arg(beforeCount).arg(afterCount));
     });
     _cleanupTimer->start();
 }
@@ -39,22 +54,42 @@ QJsonObject ProtocolHandler::handleMessage(const QJsonObject &message, const QSt
     QString action = message["action"].toString();
     QString requestId = message["request_id"].toString();
     
+    // Processing message
+    LOG_INFO(QString("Action: %1, RequestID: %2, ClientID: %3, ClientIP: %4")
+             .arg(action).arg(requestId).arg(clientId).arg(clientIP));
+    
     if (requestId.isEmpty()) {
+        LOG_ERROR("Missing request_id in message");
         return createErrorResponse("", action, "INVALID_REQUEST", "Missing request_id");
     }
     
     MessageType messageType = getMessageType(action);
-    
+    LOG_INFO(QString("Message type determined: %1").arg(static_cast<int>(messageType)));
+
     switch (messageType) {
         case Login:
+            LOG_INFO("Routing to Login handler");
             return handleLoginRequest(message, clientId, clientIP);
         case Register:
+            LOG_INFO("Routing to Register handler");
             return handleRegisterRequest(message, clientId, clientIP);
         case SendVerificationCode:
+            LOG_INFO("Routing to SendVerificationCode handler");
             return handleVerificationCodeRequest(message, clientId, clientIP);
+        case CheckUsername:
+            LOG_INFO("Routing to CheckUsername handler");
+            return handleCheckUsernameRequest(message, clientId, clientIP);
+        case CheckEmail:
+            LOG_INFO("Routing to CheckEmail handler");
+            return handleCheckEmailRequest(message, clientId, clientIP);
         case Heartbeat:
+            LOG_INFO("Routing to Heartbeat handler");
             return handleHeartbeatRequest(message, clientId);
+        case Chat:
+            LOG_INFO("Routing to Chat handler");
+            return handleChatMessage(message, clientId, clientIP);
         default:
+            LOG_ERROR(QString("Unknown action: %1").arg(action));
             return createErrorResponse(requestId, action, "UNKNOWN_ACTION", "Unknown action: " + action);
     }
 }
@@ -83,8 +118,9 @@ QJsonObject ProtocolHandler::handleLoginRequest(const QJsonObject &request, cons
         // 生成会话令牌
         QString sessionToken = generateSessionToken(user->id());
         
-        // 保存会话令牌到Redis
-        _redisClient->setSessionToken(user->id(), sessionToken, rememberMe ? 24 * 7 : 24); // 7天或1天
+        // 保存会话令牌到Redis - 使用正确的键格式：session:{token} -> {userId}
+        QString sessionKey = QString("session:%1").arg(sessionToken);
+        _redisClient->set(sessionKey, QString::number(user->id()), rememberMe ? 24 * 7 : 24); // 7天或1天
         
         // 记录登录日志
         logLoginAttempt(user->id(), user->username(), user->email(), true, clientIP);
@@ -105,7 +141,7 @@ QJsonObject ProtocolHandler::handleLoginRequest(const QJsonObject &request, cons
         successResponse["session_token"] = sessionToken;
         successResponse["expires_in"] = rememberMe ? 604800 : 86400; // 秒数
         
-        LOG_INFO(QString("Login response created for user %1: success=true, message='登录成功'").arg(username));
+    
         
         return successResponse;
     } else {
@@ -132,6 +168,7 @@ QJsonObject ProtocolHandler::handleRegisterRequest(const QJsonObject &request, c
             return createErrorResponse(requestId, action, "DUPLICATE_REQUEST", "请求正在处理中，请勿重复提交");
         }
         _processedRequests.insert(requestId);
+        _processedRequestsTime[requestId] = QDateTime::currentDateTime();
         LOG_INFO(QString("Registration request marked as processing: %1 from %2").arg(requestId).arg(clientIP));
     }
     
@@ -145,23 +182,36 @@ QJsonObject ProtocolHandler::handleRegisterRequest(const QJsonObject &request, c
     QString email = request["email"].toString();
     QString password = request["password"].toString();
     QString verificationCode = request["verification_code"].toString();
+    QString displayName = request["display_name"].toString(); // 可选字段
     
-    // 进行用户注册
+    // 使用UserRegistrationService处理注册
     LOG_INFO(QString("Processing registration request for user: %1, email: %2, verification code: %3, request_id: %4").arg(username).arg(email).arg(verificationCode).arg(requestId));
     
-    auto registerResult = _userService->registerUser(username, email, password, verificationCode);
-    LOG_INFO(QString("Registration result for user %1: %2, request_id: %3").arg(username).arg((int)registerResult.first).arg(requestId));
+    UserRegistrationService* registrationService = UserRegistrationService::instance();
+    
+    // 构建注册请求
+    UserRegistrationService::RegistrationRequest regRequest;
+    regRequest.username = username;
+    regRequest.email = email;
+    regRequest.password = password;
+    regRequest.verificationCode = verificationCode;
+    regRequest.displayName = displayName.isEmpty() ? username : displayName;
+    
+    // 执行注册
+    UserRegistrationService::RegistrationResponse response = registrationService->registerUser(regRequest);
+    
+    LOG_INFO(QString("Registration result for user %1: %2, request_id: %3").arg(username).arg((int)response.result).arg(requestId));
     
     // 注册请求完成后，延迟移除请求ID以防止重复提交
-    LOG_INFO(QString("Registration request processing completed: %1 from %2").arg(requestId).arg(clientIP));
+
     
-    if (registerResult.first == UserService::Success) {
-        User* user = registerResult.second;
-        
+    if (response.result == UserRegistrationService::Success) {
         // 发送注册成功信号
-        emit userRegistered(user->id(), user->username(), user->email());
+        QJsonObject userData = response.userData;
+        qint64 userId = userData["user_id"].toString().toLongLong();
+        emit userRegistered(userId, userData["username"].toString(), userData["email"].toString());
         
-        LOG_INFO(QString("User registration successful: %1 (%2) from %3").arg(username).arg(email).arg(clientIP));
+        LOG_INFO(QString("User registration successful: %1 (%2) with user_id: %3 from %4").arg(username).arg(email).arg(response.userId).arg(clientIP));
         
         // 创建响应数据
         QJsonObject successResponse;
@@ -169,15 +219,15 @@ QJsonObject ProtocolHandler::handleRegisterRequest(const QJsonObject &request, c
         successResponse["action"] = action + "_response";
         successResponse["success"] = true;
         successResponse["timestamp"] = QDateTime::currentSecsSinceEpoch();
-        successResponse["user"] = user->toClientJson();
-        successResponse["message"] = "注册成功，请使用新账号登录";
+        successResponse["message"] = response.message;
+        successResponse["user_id"] = response.userId;
+        successResponse["user"] = response.userData;
         
         return successResponse;
     } else {
-        QString errorMessage = UserService::getAuthResultDescription(registerResult.first);
-        LOG_WARNING(QString("User registration failed: %1 (%2) from %3 - %4 (result: %5)").arg(username).arg(email).arg(clientIP).arg(errorMessage).arg((int)registerResult.first));
+        LOG_WARNING(QString("User registration failed: %1 (%2) from %3 - %4 (result: %5)").arg(username).arg(email).arg(clientIP).arg(response.message).arg((int)response.result));
         
-        return createErrorResponse(requestId, action, "REGISTER_FAILED", errorMessage);
+        return createErrorResponse(requestId, action, "REGISTER_FAILED", response.message);
     }
 }
 
@@ -203,6 +253,7 @@ QJsonObject ProtocolHandler::handleVerificationCodeRequest(const QJsonObject &re
             return createErrorResponse(requestId, action, "DUPLICATE_REQUEST", "请求正在处理中，请勿重复提交");
         }
         _processedRequests.insert(requestId);
+        _processedRequestsTime[requestId] = QDateTime::currentDateTime();
         LOG_INFO(QString("Verification code request marked as processing: %1 for email: %2 from %3").arg(requestId).arg(email).arg(clientIP));
     }
     
@@ -219,7 +270,23 @@ QJsonObject ProtocolHandler::handleVerificationCodeRequest(const QJsonObject &re
         return createErrorResponse(requestId, action, "SERVICE_ERROR", "验证码服务不可用");
     }
     
-    QString code = codeManager->generateAndSaveCode(email, VerificationCodeManager::Registration);
+    // 检查频率限制
+    if (!codeManager->isAllowedToSend(email, 30)) { // 从60秒改为30秒
+        int remainingTime = codeManager->getRemainingWaitTime(email, 30);
+        QString errorMessage = QString("验证码发送频繁，请%1秒后重试").arg(remainingTime);
+        LOG_WARNING(QString("Rate limited for email: %1, remaining time: %2 seconds").arg(email).arg(remainingTime));
+        return createErrorResponse(requestId, action, "RATE_LIMITED", errorMessage);
+    }
+    
+    // 检查IP地址频率限制
+    if (!codeManager->isIPAllowedToSend(clientIP, 30)) { // IP地址限制30秒间隔
+        int remainingTime = codeManager->getIPRemainingWaitTime(clientIP, 30);
+        QString errorMessage = QString("发送过于频繁，请%1秒后重试").arg(remainingTime);
+        LOG_WARNING(QString("IP rate limited: %1, remaining time: %2 seconds").arg(clientIP).arg(remainingTime));
+        return createErrorResponse(requestId, action, "IP_RATE_LIMITED", errorMessage);
+    }
+    
+    QString code = codeManager->generateAndSaveCode(email, clientIP, VerificationCodeManager::Registration);
     if (code.isEmpty()) {
         LOG_ERROR(QString("Failed to generate verification code for email: %1").arg(email));
         return createErrorResponse(requestId, action, "CODE_GENERATION_FAILED", "验证码生成失败，请稍后重试");
@@ -227,20 +294,16 @@ QJsonObject ProtocolHandler::handleVerificationCodeRequest(const QJsonObject &re
     
     // 发送邮件
     EmailService::SendResult result = _emailService->sendVerificationCode(email, code, EmailService::Registration);
-    
-    // 处理完成后从去重集合中移除请求ID
-    {
-        QMutexLocker locker(&_requestMutex);
-        _processedRequests.remove(requestId);
-        LOG_INFO(QString("Verification code request completed and removed from processing: %1 for email: %2").arg(requestId).arg(email));
-    }
+
+    // 注意：不要立即从去重集合中移除请求ID，保持一段时间防止重复处理
+    // 请求ID会在定时器清理时被移除
     
     if (result == EmailService::Success) {
         QJsonObject responseData;
         responseData["message"] = "验证码已发送到您的邮箱";
         responseData["expires_in"] = 300; // 5分钟
         
-        LOG_INFO(QString("Verification code sent successfully to: %1 from %2").arg(email).arg(clientIP));
+    
         
         return createSuccessResponse(requestId, action, responseData);
     } else {
@@ -268,8 +331,13 @@ QJsonObject ProtocolHandler::handleLogoutRequest(const QJsonObject &request, con
     QString requestId = request["request_id"].toString();
     QString action = request["action"].toString();
     
-    // 删除会话令牌
-    _redisClient->deleteSessionToken(userId);
+    // 删除会话令牌 - 需要先获取会话令牌，然后删除对应的键
+    QString sessionToken;
+    if (_redisClient->getSessionToken(userId, sessionToken) == RedisClient::Success && !sessionToken.isEmpty()) {
+        QString sessionKey = QString("session:%1").arg(sessionToken);
+        _redisClient->del(sessionKey);
+        LOG_INFO(QString("Session token deleted for user %1: %2").arg(userId).arg(sessionKey));
+    }
     
     // 发送登出信号
     emit userLoggedOut(userId, clientId);
@@ -298,8 +366,17 @@ ProtocolHandler::MessageType ProtocolHandler::getMessageType(const QString &acti
     if (action == "login") return Login;
     if (action == "register") return Register;
     if (action == "send_verification_code") return SendVerificationCode;
+    if (action == "check_username") return CheckUsername;
+    if (action == "check_email") return CheckEmail;
     if (action == "heartbeat") return Heartbeat;
-    if (action == "logout") return Logout;
+
+    // 聊天相关的动作
+    if (action.startsWith("friend_") || action.startsWith("message_") ||
+        action.startsWith("status_") || action == "send_message" ||
+        action == "get_chat_history" || action == "get_chat_sessions") {
+        return Chat;
+    }
+
     return Unknown;
 }
 
@@ -329,7 +406,8 @@ QJsonObject ProtocolHandler::createErrorResponse(const QString &requestId, const
     response["message"] = errorMessage;  // 为了兼容性，也设置message字段
     response["timestamp"] = QDateTime::currentSecsSinceEpoch();
     
-    LOG_INFO(QString("Error response created: code=%1, message='%2'").arg(errorCode).arg(errorMessage));
+    LOG_WARNING(QString("Error response created: requestId=%1, action=%2, errorCode=%3, message=%4")
+                .arg(requestId).arg(action).arg(errorCode).arg(errorMessage));
     
     return response;
 }
@@ -361,4 +439,139 @@ void ProtocolHandler::logLoginAttempt(qint64 userId, const QString &username, co
     
     // 记录到日志文件
     Logger::logAuth(success ? "LOGIN_SUCCESS" : "LOGIN_FAILED", username, success, clientIP, errorMessage);
+}
+
+QJsonObject ProtocolHandler::handleChatMessage(const QJsonObject &request, const QString &clientId, const QString &clientIP)
+{
+    QString requestId = request["request_id"].toString();
+    QString action = request["action"].toString();
+
+    // Processing chat message
+    LOG_INFO(QString("Action: %1, RequestID: %2, ClientID: %3, ClientIP: %4")
+             .arg(action).arg(requestId).arg(clientId).arg(clientIP));
+
+    // 验证用户是否已认证
+    QString sessionToken = request["session_token"].toString();
+    if (sessionToken.isEmpty()) {
+        LOG_ERROR("Session token is missing");
+        return createErrorResponse(requestId, action, "AUTHENTICATION_REQUIRED", "Session token is required for chat operations");
+    }
+
+    LOG_INFO(QString("Session token found: %1").arg(sessionToken.left(10) + "..."));
+
+    // 从Redis中获取用户ID
+    QString userIdKey = QString("session:%1").arg(sessionToken);
+    QString userIdStr;
+    LOG_INFO(QString("Looking up session in Redis with key: %1").arg(userIdKey));
+    
+    RedisClient::Result result = _redisClient->get(userIdKey, userIdStr);
+    LOG_INFO(QString("Redis lookup result: %1, userIdStr: '%2'").arg(static_cast<int>(result)).arg(userIdStr));
+    
+    if (userIdStr.isEmpty()) {
+        LOG_ERROR(QString("Invalid or expired session token. Key: %1, Result: %2").arg(userIdKey).arg(static_cast<int>(result)));
+        return createErrorResponse(requestId, action, "INVALID_SESSION", "Invalid or expired session token");
+    }
+
+    bool ok;
+    qint64 userId = userIdStr.toLongLong(&ok);
+    if (!ok || userId <= 0) {
+        LOG_ERROR(QString("Invalid user session: %1").arg(userIdStr));
+        return createErrorResponse(requestId, action, "INVALID_SESSION", "Invalid user session");
+    }
+
+    LOG_INFO(QString("User ID resolved: %1").arg(userId));
+
+    // 检查聊天处理器是否可用
+    if (!_chatHandler) {
+        LOG_ERROR("ChatProtocolHandler instance is null");
+        return createErrorResponse(requestId, action, "SERVICE_UNAVAILABLE", "Chat service is not available");
+    }
+
+    // 初始化聊天处理器（如果尚未初始化）
+    if (!_chatHandler->initialize()) {
+        LOG_ERROR("Chat service initialization failed");
+        return createErrorResponse(requestId, action, "SERVICE_UNAVAILABLE", "Chat service initialization failed");
+    }
+
+    LOG_INFO("Delegating to ChatProtocolHandler");
+    // 委托给聊天协议处理器
+    return _chatHandler->handleChatRequest(request, clientIP, userId);
+}
+
+QJsonObject ProtocolHandler::handleCheckUsernameRequest(const QJsonObject &request, const QString &clientId, const QString &clientIP)
+{
+    QString requestId = request["request_id"].toString();
+    QString action = request["action"].toString();
+    
+    // 验证请求格式
+    auto validation = validateRequest(request, {"username"});
+    if (!validation.first) {
+        LOG_WARNING(QString("Invalid check username request format from %1: %2").arg(clientIP).arg(validation.second));
+        return createErrorResponse(requestId, action, "VALIDATION_ERROR", validation.second);
+    }
+    
+    QString username = request["username"].toString();
+    
+    // 验证用户名格式
+    if (!Validator::isValidUsername(username)) {
+        LOG_WARNING(QString("Invalid username format in check request: %1 from %2").arg(username).arg(clientIP));
+        return createErrorResponse(requestId, action, "VALIDATION_ERROR", "用户名格式无效");
+    }
+    
+    // 检查用户名可用性
+    UserRegistrationService* registrationService = UserRegistrationService::instance();
+    if (!registrationService) {
+        LOG_ERROR("UserRegistrationService not available");
+        return createErrorResponse(requestId, action, "SERVICE_ERROR", "服务不可用");
+    }
+    
+    bool available = registrationService->isUsernameAvailable(username);
+    
+    QJsonObject responseData;
+    responseData["username"] = username;
+    responseData["available"] = available;
+    responseData["message"] = available ? "用户名可用" : "用户名已被使用";
+    
+    LOG_INFO(QString("Username availability check: %1 -> %2 from %3").arg(username).arg(available ? "available" : "unavailable").arg(clientIP));
+    
+    return createSuccessResponse(requestId, action, responseData);
+}
+
+QJsonObject ProtocolHandler::handleCheckEmailRequest(const QJsonObject &request, const QString &clientId, const QString &clientIP)
+{
+    QString requestId = request["request_id"].toString();
+    QString action = request["action"].toString();
+    
+    // 验证请求格式
+    auto validation = validateRequest(request, {"email"});
+    if (!validation.first) {
+        LOG_WARNING(QString("Invalid check email request format from %1: %2").arg(clientIP).arg(validation.second));
+        return createErrorResponse(requestId, action, "VALIDATION_ERROR", validation.second);
+    }
+    
+    QString email = request["email"].toString();
+    
+    // 验证邮箱格式
+    if (!Validator::isValidEmail(email)) {
+        LOG_WARNING(QString("Invalid email format in check request: %1 from %2").arg(email).arg(clientIP));
+        return createErrorResponse(requestId, action, "VALIDATION_ERROR", "邮箱格式无效");
+    }
+    
+    // 检查邮箱可用性
+    UserRegistrationService* registrationService = UserRegistrationService::instance();
+    if (!registrationService) {
+        LOG_ERROR("UserRegistrationService not available");
+        return createErrorResponse(requestId, action, "SERVICE_ERROR", "服务不可用");
+    }
+    
+    bool available = registrationService->isEmailAvailable(email);
+    
+    QJsonObject responseData;
+    responseData["email"] = email;
+    responseData["available"] = available;
+    responseData["message"] = available ? "邮箱可用" : "邮箱已被注册";
+    
+    LOG_INFO(QString("Email availability check: %1 -> %2 from %3").arg(email).arg(available ? "available" : "unavailable").arg(clientIP));
+    
+    return createSuccessResponse(requestId, action, responseData);
 }

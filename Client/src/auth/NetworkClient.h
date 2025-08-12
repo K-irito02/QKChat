@@ -86,6 +86,20 @@ public:
     QString sendVerificationCodeRequest(const QString &email);
     
     /**
+     * @brief 发送检查用户名可用性请求
+     * @param username 用户名
+     * @return 请求ID
+     */
+    QString sendCheckUsernameRequest(const QString &username);
+    
+    /**
+     * @brief 发送检查邮箱可用性请求
+     * @param email 邮箱地址
+     * @return 请求ID
+     */
+    QString sendCheckEmailRequest(const QString &email);
+    
+    /**
      * @brief 发送心跳包
      */
     void sendHeartbeat();
@@ -113,6 +127,49 @@ public:
      * @param interval 心跳间隔（毫秒）
      */
     void setHeartbeatInterval(int interval);
+    
+    /**
+     * @brief 获取单例实例
+     */
+    static NetworkClient* instance();
+    
+    /**
+     * @brief 发送消息
+     * @param message 消息数据
+     */
+    void sendMessage(const QJsonObject& message);
+    
+    /**
+     * @brief 获取客户端ID
+     * @return 客户端ID
+     */
+    QString clientId() const;
+    
+    /**
+     * @brief 检查是否已认证
+     * @return 是否已认证
+     */
+    bool isAuthenticated() const;
+    
+    /**
+     * @brief 获取会话令牌
+     * @return 会话令牌
+     */
+    QString sessionToken() const;
+
+    /**
+     * @brief 设置认证状态
+     * @param authenticated 是否已认证
+     * @param token 会话令牌
+     */
+    void setAuthenticated(bool authenticated, const QString& token = QString());
+
+    /**
+     * @brief 发送聊天请求
+     * @param request 请求数据
+     * @return 请求ID
+     */
+    QString sendChatRequest(const QJsonObject &request);
 
 signals:
     /**
@@ -143,10 +200,30 @@ signals:
     void verificationCodeResponse(const QString &requestId, const QJsonObject &response);
     
     /**
+     * @brief 用户名可用性检查响应
+     * @param requestId 请求ID
+     * @param response 响应数据
+     */
+    void usernameAvailabilityResponse(const QString &requestId, const QJsonObject &response);
+    
+    /**
+     * @brief 邮箱可用性检查响应
+     * @param requestId 请求ID
+     * @param response 响应数据
+     */
+    void emailAvailabilityResponse(const QString &requestId, const QJsonObject &response);
+    
+    /**
      * @brief 网络错误信号
      * @param error 错误信息
      */
     void networkError(const QString &error);
+    
+    /**
+     * @brief 消息接收信号
+     * @param message 接收到的消息
+     */
+    void messageReceived(const QJsonObject &message);
     
     /**
      * @brief SSL错误信号
@@ -199,7 +276,7 @@ private:
     /**
      * @brief 配置SSL
      */
-    void configureSsl();
+
     
     /**
      * @brief 启动重连机制
@@ -245,8 +322,15 @@ private:
     QMap<QString, QString> _pendingRequests; // requestId -> requestType
     QMutex _dataMutex; // 添加互斥锁保护共享数据
     
+    // 认证相关
+    QString _clientId;
+    QString _sessionToken;
+    bool _isAuthenticated;
+    
     static int s_requestCounter;
     static QMutex s_counterMutex; // 保护静态计数器的互斥锁
+    static NetworkClient* s_instance;
+    static QMutex s_instanceMutex;
 };
 
 #endif // NETWORKCLIENT_H

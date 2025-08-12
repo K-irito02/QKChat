@@ -45,6 +45,7 @@ public:
     static void shutdown();
     
 
+
     
     /**
      * @brief 记录一般信息
@@ -268,6 +269,7 @@ private:
 };
 
 // 便捷宏定义
+
 
 #define LOG_INFO(msg) Logger::info(msg, __FUNCTION__, __LINE__)
 #define LOG_WARNING(msg) Logger::warning(msg, __FUNCTION__, __LINE__)

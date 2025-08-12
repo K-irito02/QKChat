@@ -11,6 +11,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QUuid>
+#include <QTimer>
 
 EmailService::EmailService(QObject *parent)
     : QObject(parent)
@@ -26,12 +27,7 @@ EmailService::EmailService(QObject *parent)
     connect(_smtpClient, &SmtpClient::emailSent, this, &EmailService::onEmailSent);
     connect(_smtpClient, &SmtpClient::emailFailed, this, &EmailService::onEmailFailed);
 
-    // 创建清理定时器（每小时清理一次）
-    _cleanupTimer = new QTimer(this);
-    _cleanupTimer->setInterval(3600000); // 1小时
-    _cleanupTimer->setSingleShot(false);
-    connect(_cleanupTimer, &QTimer::timeout, this, &EmailService::onCleanupTimer);
-    _cleanupTimer->start();
+    // 移除自动清理定时器，由客户端控制验证码发送
 }
 
 EmailService::~EmailService()
@@ -64,10 +60,19 @@ bool EmailService::initialize(const QString &smtpServer, int smtpPort,
     }
 
     // 配置SMTP客户端
-    // 端口465使用直接SSL连接，端口587使用STARTTLS
+    // QQ邮箱465端口使用直接SSL连接，587端口使用STARTTLS
     bool useStartTls = (_smtpPort == 587);
+    
+    // QQ邮箱特殊配置：465端口必须使用SSL，不能使用STARTTLS
+    if (_smtpPort == 465) {
+        useStartTls = false;
+        _useTLS = true;
+    }
+    
+    LOG_INFO(QString("Configuring SMTP client: port=%1, useTLS=%2, useStartTLS=%3")
+             .arg(_smtpPort).arg(_useTLS).arg(useStartTls));
+    
     _smtpClient->configure(_smtpServer, _smtpPort, _username, _password, _useTLS, useStartTls);
-    _smtpClient->setMaxRetries(3);
     _smtpClient->setConnectionTimeout(30000);
 
     _initialized = true;
@@ -98,7 +103,7 @@ EmailService::SendResult EmailService::sendVerificationCode(const QString &email
         return DatabaseError;
     }
     
-    QString code = codeManager->generateAndSaveCode(email, static_cast<VerificationCodeManager::CodeType>(codeType));
+    QString code = codeManager->generateAndSaveCodeInternal(email, static_cast<VerificationCodeManager::CodeType>(codeType));
     if (code.isEmpty()) {
         LOG_ERROR(QString("Failed to generate verification code for email: %1").arg(email));
         return DatabaseError;
@@ -130,7 +135,7 @@ EmailService::SendResult EmailService::sendVerificationCode(const QString &email
 
     
     if (success) {
-        LOG_INFO(QString("Verification code sent successfully to: %1").arg(email));
+    
         emit emailSent(email, Success);
         return Success;
     } else {
@@ -170,21 +175,21 @@ QString EmailService::getSendResultDescription(SendResult result)
 {
     switch (result) {
         case Success:
-            return "邮件发送成功";
+            return "验证码已发送，请注意查收";
         case InvalidEmail:
-            return "邮箱地址无效";
+            return "邮箱地址无效，请检查邮箱格式";
         case RateLimited:
-            return "发送频率过快，请稍后再试";
+            return "验证码发送频繁，请稍后再试";
         case SmtpError:
-            return "SMTP服务器错误";
+            return "验证码发送失败，请重试";
         case NetworkError:
-            return "网络连接错误";
+            return "网络连接错误，请检查网络后重试";
         case ConfigError:
-            return "邮件服务配置错误";
+            return "邮件服务配置错误，请联系管理员";
         case DatabaseError:
-            return "数据库错误";
+            return "数据库错误，请重试";
         default:
-            return "未知错误";
+            return "验证码发送失败，请重试";
     }
 }
 
@@ -197,21 +202,7 @@ void EmailService::setCodeExpiration(int minutes)
     LOG_INFO(QString("Verification code expiration updated: %1 minutes").arg(minutes));
 }
 
-void EmailService::cleanup()
-{
-    // 清理数据库中过期的验证码
-    QString sql = "DELETE FROM verification_codes WHERE expires_at < NOW()";
-    int deleted = _databaseManager->executeUpdate(sql);
-    
-    if (deleted > 0) {
-        LOG_INFO(QString("Cleaned up %1 expired verification codes").arg(deleted));
-    }
-}
-
-void EmailService::onCleanupTimer()
-{
-    cleanup();
-}
+// 移除自动清理功能，由客户端控制验证码发送
 
 
 
@@ -316,13 +307,10 @@ bool EmailService::sendEmailInternal(const QString &email, const QString &subjec
         return false;
     }
 
-    LOG_INFO(QString("Sending email to: %1, Subject: %2").arg(email).arg(subject));
-
     // 使用真实的SMTP客户端发送邮件
     QString messageId = _smtpClient->sendEmail(email, subject, content, isHtml, "QKChat Server");
 
     if (!messageId.isEmpty()) {
-        LOG_INFO(QString("Email queued for sending: %1").arg(messageId));
         return true;
     } else {
         LOG_ERROR("Failed to queue email for sending");
@@ -338,8 +326,6 @@ bool EmailService::sendVerificationCodeEmail(const QString &email, const QString
         return false;
     }
 
-    LOG_INFO(QString("Sending verification code email to: %1").arg(email));
-
     // 创建验证码邮件消息
     SmtpClient::EmailMessage message;
     message.from = _username;
@@ -354,7 +340,6 @@ bool EmailService::sendVerificationCodeEmail(const QString &email, const QString
     QString messageId = _smtpClient->sendEmail(message);
 
     if (!messageId.isEmpty()) {
-        LOG_INFO(QString("Verification code email queued for sending: %1").arg(messageId));
         return true;
     } else {
         LOG_ERROR("Failed to queue verification code email for sending");
@@ -366,12 +351,12 @@ bool EmailService::sendVerificationCodeEmail(const QString &email, const QString
 
 void EmailService::onEmailSent(const QString &messageId)
 {
-    LOG_INFO(QString("Email sent successfully: %1").arg(messageId));
+
     // 这里可以添加发送成功后的处理逻辑，如更新数据库状态
 }
 
 void EmailService::onEmailFailed(const QString &messageId, const QString &error)
 {
     LOG_ERROR(QString("Email failed to send: %1 - %2").arg(messageId).arg(error));
-    // 这里可以添加发送失败后的处理逻辑，如记录错误、重试等
+    // 邮件发送失败，由客户端决定是否重试
 }

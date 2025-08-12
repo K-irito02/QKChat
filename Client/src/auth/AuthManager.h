@@ -104,6 +104,20 @@ public:
     Q_INVOKABLE bool sendVerificationCode(const QString &email);
     
     /**
+     * @brief 检查用户名是否可用
+     * @param username 用户名
+     * @return 是否可用
+     */
+    Q_INVOKABLE bool checkUsernameAvailability(const QString &username);
+    
+    /**
+     * @brief 检查邮箱是否可用
+     * @param email 邮箱地址
+     * @return 是否可用
+     */
+    Q_INVOKABLE bool checkEmailAvailability(const QString &email);
+    
+    /**
      * @brief 用户登出
      */
     Q_INVOKABLE void logout();
@@ -136,7 +150,7 @@ public:
      * @brief 检查是否正在加载
      * @return 是否正在加载
      */
-    bool isLoading() const { return _authState != Idle; }
+    bool isLoading() const { return _authState == LoggingIn || _authState == Registering; }
     
     /**
      * @brief 获取当前认证状态
@@ -225,6 +239,20 @@ signals:
     void verificationCodeFailed(const QString &error);
     
     /**
+     * @brief 用户名可用性检查结果
+     * @param username 用户名
+     * @param available 是否可用
+     */
+    void usernameAvailabilityResult(const QString &username, bool available);
+    
+    /**
+     * @brief 邮箱可用性检查结果
+     * @param email 邮箱地址
+     * @param available 是否可用
+     */
+    void emailAvailabilityResult(const QString &email, bool available);
+    
+    /**
      * @brief 网络错误信号
      * @param error 错误信息
      */
@@ -235,6 +263,8 @@ private slots:
     void onLoginResponse(const QString &requestId, const QJsonObject &response);
     void onRegisterResponse(const QString &requestId, const QJsonObject &response);
     void onVerificationCodeResponse(const QString &requestId, const QJsonObject &response);
+    void onUsernameAvailabilityResponse(const QString &requestId, const QJsonObject &response);
+    void onEmailAvailabilityResponse(const QString &requestId, const QJsonObject &response);
     void onNetworkError(const QString &error);
     void onSessionExpired();
     void onAutoLoginRequested(const QString &username, const QString &passwordHash);
@@ -252,6 +282,22 @@ private:
      * @return 认证响应对象
      */
     AuthResponse* processAuthResponse(const QJsonObject &response);
+    
+    /**
+     * @brief 获取验证码错误消息的用户友好版本
+     * @param errorCode 错误代码
+     * @param originalMessage 原始错误消息
+     * @return 用户友好的错误消息
+     */
+    QString getVerificationCodeErrorMessage(const QString &errorCode, const QString &originalMessage);
+    
+    /**
+     * @brief 获取注册错误消息的用户友好版本
+     * @param errorCode 错误代码
+     * @param originalMessage 原始错误消息
+     * @return 用户友好的错误消息
+     */
+    QString getRegisterErrorMessage(const QString &errorCode, const QString &originalMessage);
 
     /**
      * @brief 执行自动登录
@@ -272,7 +318,6 @@ private:
     bool _useTLS;
     
     AuthState _authState;
-    QMap<QString, QString> _pendingRequests; // requestId -> requestType
 };
 
 #endif // AUTHMANAGER_H

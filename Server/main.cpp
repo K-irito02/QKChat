@@ -4,6 +4,10 @@
 
 #include <QApplication>
 #include <QMessageBox>
+#include <QTimer>
+#include <QThread>
+#include <QProcess>
+#include <QDir>
 
 #include <QNetworkAccessManager>
 #include <QDir>
@@ -11,8 +15,84 @@
 #include <QDateTime>
 #include <QFileInfo>
 
+#include <signal.h>  // 添加信号处理支持
+
+// 全局异常处理函数
+void globalExceptionHandler()
+{
+    LOG_CRITICAL("Unhandled exception caught in global handler");
+    
+    // 尝试优雅地关闭应用程序
+    if (QApplication::instance()) {
+        QApplication::quit();
+    }
+}
+
+// 信号处理函数（用于捕获崩溃信号）
+void signalHandler(int signal)
+{
+    LOG_CRITICAL(QString("Received signal %1, shutting down gracefully").arg(signal));
+    
+    // 记录崩溃信息
+    QString crashInfo = QString("Server crashed with signal: %1").arg(signal);
+    LOG_CRITICAL(crashInfo);
+    
+    // 尝试优雅地关闭应用程序
+    if (QApplication::instance()) {
+        QApplication::quit();
+    }
+}
+
+// 自定义消息处理器
+void customMessageHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
+{
+    QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss.zzz");
+    QString logMessage;
+    
+    switch (type) {
+    case QtDebugMsg:
+        logMessage = QString("[%1][DEBUG]: %2").arg(timestamp).arg(msg);
+        break;
+    case QtInfoMsg:
+        logMessage = QString("[%1][INFO]: %2").arg(timestamp).arg(msg);
+        break;
+    case QtWarningMsg:
+        logMessage = QString("[%1][WARNING]: %2").arg(timestamp).arg(msg);
+        break;
+    case QtCriticalMsg:
+        logMessage = QString("[%1][CRITICAL]: %2").arg(timestamp).arg(msg);
+        break;
+    case QtFatalMsg:
+        logMessage = QString("[%1][FATAL]: %2").arg(timestamp).arg(msg);
+        LOG_CRITICAL("Fatal error detected, application will terminate");
+        break;
+    }
+    
+    // 输出到控制台
+    fprintf(stderr, "%s\n", qPrintable(logMessage));
+    
+    // 如果是致命错误，记录详细信息
+    if (type == QtFatalMsg) {
+        LOG_CRITICAL(QString("Fatal error context - File: %1, Line: %2, Function: %3")
+                     .arg(context.file).arg(context.line).arg(context.function));
+    }
+}
+
 int main(int argc, char *argv[])
 {
+    // 设置全局异常处理
+    std::set_terminate(globalExceptionHandler);
+    
+    // 设置信号处理器
+    signal(SIGSEGV, signalHandler);  // 段错误
+    signal(SIGABRT, signalHandler);  // 中止信号
+    signal(SIGFPE, signalHandler);   // 浮点异常
+    signal(SIGILL, signalHandler);   // 非法指令
+    signal(SIGTERM, signalHandler);  // 终止信号
+    
+    // 设置自定义消息处理器
+    qInstallMessageHandler(customMessageHandler);
+    
     QApplication a(argc, argv);
 
     // 设置应用程序信息
@@ -56,23 +136,25 @@ int main(int argc, char *argv[])
     
     // 连接服务器管理器信号到主窗口（如果需要）
     QObject::connect(serverManager, &ServerManager::serverStateChanged, [&w](ServerManager::ServerState state) {
-        // 状态变化处理
+        // 可以在这里更新主窗口状态
     });
-
+    
     QObject::connect(serverManager, &ServerManager::clientConnected, [](int count) {
-        // 客户端连接处理
+        LOG_INFO(QString("Client connected, total: %1").arg(count));
     });
-
+    
     QObject::connect(serverManager, &ServerManager::userLoggedIn, [](qint64 userId, const QString &username) {
-        // 用户登录处理
+        LOG_INFO(QString("User logged in: %1 (ID: %2)").arg(username).arg(userId));
     });
 
-    int result = a.exec();
+    // 添加应用程序退出处理
+    QObject::connect(&a, &QApplication::aboutToQuit, [serverManager]() {
+        LOG_INFO("Application about to quit, cleaning up...");
+        if (serverManager) {
+            serverManager->stopServer();
+        }
+        LOG_INFO("Cleanup completed");
+    });
 
-    // 清理资源
-    LOG_INFO("QKChat Server shutting down");
-    serverManager->stopServer();
-    Logger::shutdown();
-
-    return result;
+    return a.exec();
 }

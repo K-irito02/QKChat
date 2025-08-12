@@ -2,6 +2,7 @@
 #include "../utils/Logger.h"
 #include "../utils/Validator.h"
 #include "../utils/Crypto.h"
+#include "../models/User.h"
 #include <QJsonDocument>
 #include <QMutexLocker>
 #include <QThread>
@@ -19,23 +20,30 @@ AuthManager::AuthManager(QObject *parent)
     , _useTLS(false)  // 暂时禁用SSL
     , _authState(Idle)
 {
-    // 创建网络客户端
-    _networkClient = new NetworkClient(this);
+    // 使用单例网络客户端实例
+    _networkClient = NetworkClient::instance();
     
     // 获取会话管理器实例
     _sessionManager = SessionManager::instance();
     
-    // 连接网络客户端信号（使用队列连接确保线程安全）
-    connect(_networkClient, &NetworkClient::connectionStateChanged,
-            this, &AuthManager::onNetworkConnectionStateChanged, Qt::QueuedConnection);
-    connect(_networkClient, &NetworkClient::loginResponse,
-            this, &AuthManager::onLoginResponse, Qt::QueuedConnection);
-    connect(_networkClient, &NetworkClient::registerResponse,
-            this, &AuthManager::onRegisterResponse, Qt::QueuedConnection);
-    connect(_networkClient, &NetworkClient::verificationCodeResponse,
-            this, &AuthManager::onVerificationCodeResponse, Qt::QueuedConnection);
-    connect(_networkClient, &NetworkClient::networkError,
-            this, &AuthManager::onNetworkError, Qt::QueuedConnection);
+    // 初始化认证状态
+    _authState = Idle;
+    
+    // 连接网络客户端信号
+    connect(_networkClient, &NetworkClient::connectionStateChanged, 
+            this, &AuthManager::onNetworkConnectionStateChanged);
+    connect(_networkClient, &NetworkClient::loginResponse, 
+            this, &AuthManager::onLoginResponse);
+    connect(_networkClient, &NetworkClient::registerResponse, 
+            this, &AuthManager::onRegisterResponse);
+    connect(_networkClient, &NetworkClient::verificationCodeResponse, 
+            this, &AuthManager::onVerificationCodeResponse);
+    connect(_networkClient, &NetworkClient::usernameAvailabilityResponse, 
+            this, &AuthManager::onUsernameAvailabilityResponse);
+    connect(_networkClient, &NetworkClient::emailAvailabilityResponse, 
+            this, &AuthManager::onEmailAvailabilityResponse);
+    connect(_networkClient, &NetworkClient::networkError, 
+            this, &AuthManager::onNetworkError);
     
     // 连接会话管理器信号
     connect(_sessionManager, &SessionManager::loginStateChanged,
@@ -50,18 +58,12 @@ AuthManager::AuthManager(QObject *parent)
 
 AuthManager::~AuthManager()
 {
-    LOG_INFO("AuthManager destructor called");
-
     try {
-        _pendingRequests.clear();
-
         if (_networkClient) {
             disconnectFromServer();
-            _networkClient->deleteLater();
+            // 不再删除_networkClient，因为它是单例
             _networkClient = nullptr;
         }
-
-        LOG_INFO("AuthManager destructor completed");
     } catch (...) {
         // 忽略析构错误
     }
@@ -74,10 +76,7 @@ AuthManager* AuthManager::instance()
         QMutexLocker locker(&s_mutex);
         if (!s_instance) {
             s_instance = new AuthManager();
-            // 确保在主线程中创建
-            if (QThread::currentThread() != QCoreApplication::instance()->thread()) {
-                LOG_WARNING("AuthManager instance created in non-main thread");
-            }
+
         }
     }
     return s_instance;
@@ -98,16 +97,14 @@ bool AuthManager::initialize(const QString &serverHost, quint16 serverPort, bool
     _serverPort = serverPort;
     _useTLS = false;  // 强制禁用SSL
     
-    LOG_INFO(QString("AuthManager initialized with server %1:%2 (TLS: disabled)")
-             .arg(serverHost).arg(serverPort));
+
     
     return true;
 }
 
 bool AuthManager::connectToServer()
 {
-    LOG_INFO(QString("AuthManager::connectToServer() called - Host: %1, Port: %2, TLS: disabled")
-             .arg(_serverHost).arg(_serverPort));
+
 
     if (_serverHost.isEmpty() || _serverPort == 0) {
         LOG_ERROR("Server configuration not set");
@@ -119,16 +116,17 @@ bool AuthManager::connectToServer()
         return true;
     }
 
-    LOG_INFO("Setting auth state to Connecting and calling NetworkClient::connectToServer");
     setAuthState(Connecting);
     bool result = _networkClient->connectToServer(_serverHost, _serverPort, false);  // 强制禁用SSL
-    LOG_INFO(QString("NetworkClient::connectToServer returned: %1").arg(result ? "true" : "false"));
     return result;
 }
 
 void AuthManager::disconnectFromServer()
 {
-    _networkClient->disconnectFromServer();
+    if (_networkClient) {
+        _networkClient->disconnectFromServer();
+    }
+    
     setAuthState(Idle);
 }
 
@@ -153,22 +151,13 @@ bool AuthManager::login(const QString &username, const QString &password, bool r
     
     setAuthState(LoggingIn);
     
-    // 发送登录请求 - 发送原始密码，让服务器使用存储的salt计算哈希
+    // 发送登录请求
     QString requestId = _networkClient->sendLoginRequest(username, password, rememberMe);
+    
     if (requestId.isEmpty()) {
         setAuthState(Idle);
         emit loginFailed("发送登录请求失败");
         return false;
-    }
-    
-    _pendingRequests[requestId] = "login";
-    
-    // 保存登录信息（如果启用记住登录）
-    // 注意：为了安全，我们保存密码哈希而不是原始密码
-    if (rememberMe) {
-        QString salt = Crypto::generateSalt();
-        QString passwordHash = Crypto::hashPassword(password, salt);
-        _sessionManager->saveLoginInfo(username, passwordHash);
     }
     
     LOG_INFO(QString("Login request sent for user: %1").arg(username));
@@ -206,8 +195,6 @@ bool AuthManager::registerUser(const QString &username, const QString &email,
         return false;
     }
     
-    _pendingRequests[requestId] = "register";
-    
     LOG_INFO(QString("Register request sent for user: %1, email: %2").arg(username).arg(email));
     return true;
 }
@@ -241,9 +228,57 @@ bool AuthManager::sendVerificationCode(const QString &email)
         return false;
     }
     
-    _pendingRequests[requestId] = "verification_code";
-    
     LOG_INFO(QString("Verification code request sent for email: %1").arg(email));
+    return true;
+}
+
+bool AuthManager::checkUsernameAvailability(const QString &username)
+{
+    // 验证用户名格式
+    if (!Validator::isValidUsername(username)) {
+        // 格式无效时不发出信号，让UI自己处理
+        return false;
+    }
+    
+    if (!_networkClient->isConnected()) {
+        // 网络未连接时不发出信号，让UI自己处理
+        return false;
+    }
+    
+    // 发送检查用户名可用性请求
+    QString requestId = _networkClient->sendCheckUsernameRequest(username);
+    
+    if (requestId.isEmpty()) {
+        // 请求发送失败时不发出信号，让UI自己处理
+        return false;
+    }
+    
+    LOG_INFO(QString("Username availability check request sent for: %1").arg(username));
+    return true;
+}
+
+bool AuthManager::checkEmailAvailability(const QString &email)
+{
+    // 验证邮箱格式
+    if (!Validator::isValidEmail(email)) {
+        // 格式无效时不发出信号，让UI自己处理
+        return false;
+    }
+    
+    if (!_networkClient->isConnected()) {
+        // 网络未连接时不发出信号，让UI自己处理
+        return false;
+    }
+    
+    // 发送检查邮箱可用性请求
+    QString requestId = _networkClient->sendCheckEmailRequest(email);
+    
+    if (requestId.isEmpty()) {
+        // 请求发送失败时不发出信号，让UI自己处理
+        return false;
+    }
+    
+    LOG_INFO(QString("Email availability check request sent for: %1").arg(email));
     return true;
 }
 
@@ -350,45 +385,43 @@ void AuthManager::onNetworkConnectionStateChanged(NetworkClient::ConnectionState
 
 void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &response)
 {
-    if (!_pendingRequests.contains(requestId)) {
-        return;
-    }
-
-    _pendingRequests.remove(requestId);
-    setAuthState(Idle);
+    LOG_INFO(QString("Login response received: %1").arg(requestId));
 
     AuthResponse* authResponse = processAuthResponse(response);
-    
-    LOG_INFO(QString("Processing login response: success=%1, message='%2', hasUser=%3, hasSessionToken=%4")
-             .arg(authResponse->success())
-             .arg(authResponse->message())
-             .arg(authResponse->user() != nullptr)
-             .arg(!authResponse->sessionToken().isEmpty()));
 
     if (authResponse->success()) {
-        User* user = authResponse->user();
-        QString sessionToken = authResponse->sessionToken();
-
-        if (user && !sessionToken.isEmpty()) {
-            // 创建会话
-            bool rememberMe = _sessionManager->isRememberMeEnabled();
-            if (_sessionManager->createSession(user, sessionToken, rememberMe)) {
-                LOG_INFO(QString("Login successful for user: %1").arg(user->username()));
-                
-                emit loginSucceeded(user);
-            } else {
-                LOG_ERROR("Failed to create session after successful login");
-                emit loginFailed("创建会话失败");
-            }
+        // 登录成功
+        QJsonObject userData = response["user"].toObject();
+        QString sessionToken = response["session_token"].toString();
+        qint64 expiresIn = response["expires_in"].toVariant().toLongLong();
+        
+        // 创建User对象
+        User* user = new User(userData, this);
+        
+        // 创建会话
+        _sessionManager->createSession(user, sessionToken, true);
+        
+        // 更新NetworkClient的认证状态
+        if (_networkClient) {
+            LOG_INFO("Updating NetworkClient authentication state");
+            _networkClient->setAuthenticated(true, sessionToken);
         } else {
-            LOG_ERROR("Invalid login response: missing user data or session token");
-
-            emit loginFailed("服务器响应数据无效");
+            LOG_ERROR("NetworkClient is null, cannot update authentication state");
         }
+        
+        // 更新认证状态
+        setAuthState(Idle);
+        
+        // 发送登录成功信号
+        emit loginSucceeded(user);
+        
+        LOG_INFO(QString("User login successful: %1").arg(userData["username"].toString()));
     } else {
-        LOG_WARNING(QString("Login failed: %1").arg(authResponse->message()));
-
+        // 登录失败
+        setAuthState(Idle);
         emit loginFailed(authResponse->message());
+        
+        LOG_WARNING(QString("User login failed: %1").arg(authResponse->message()));
     }
 
     authResponse->deleteLater();
@@ -396,28 +429,33 @@ void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &r
 
 void AuthManager::onRegisterResponse(const QString &requestId, const QJsonObject &response)
 {
-    if (!_pendingRequests.contains(requestId)) {
-        return;
-    }
-
-    _pendingRequests.remove(requestId);
-    setAuthState(Idle);
+    LOG_INFO(QString("Register response received: %1").arg(requestId));
 
     AuthResponse* authResponse = processAuthResponse(response);
 
     if (authResponse->success()) {
-        User* user = authResponse->user();
-
-        if (user) {
-            LOG_INFO(QString("Registration successful for user: %1").arg(user->username()));
-            emit registerSucceeded(user);
-        } else {
-            LOG_ERROR("Invalid register response: missing user data");
-            emit registerFailed("服务器响应数据无效");
-        }
+        // 注册成功
+        QJsonObject userData = response["user"].toObject();
+        
+        // 创建User对象
+        User* user = new User(userData, this);
+        
+        // 更新认证状态
+        setAuthState(Idle);
+        
+        // 发送注册成功信号
+        emit registerSucceeded(user);
+        
+        LOG_INFO(QString("User registration successful: %1").arg(userData["username"].toString()));
     } else {
-        LOG_WARNING(QString("Registration failed: %1").arg(authResponse->message()));
-        emit registerFailed(authResponse->message());
+        // 注册失败
+        setAuthState(Idle);
+        
+        // 获取用户友好的错误消息
+        QString errorMessage = getRegisterErrorMessage(authResponse->errorCode(), authResponse->message());
+        emit registerFailed(errorMessage);
+        
+        LOG_WARNING(QString("User registration failed: %1").arg(errorMessage));
     }
 
     authResponse->deleteLater();
@@ -425,23 +463,74 @@ void AuthManager::onRegisterResponse(const QString &requestId, const QJsonObject
 
 void AuthManager::onVerificationCodeResponse(const QString &requestId, const QJsonObject &response)
 {
-    if (!_pendingRequests.contains(requestId)) {
-        return;
-    }
-
-    _pendingRequests.remove(requestId);
+    LOG_INFO(QString("Verification code response received: %1").arg(requestId));
+    
     setAuthState(Idle);
-
+    
     AuthResponse* authResponse = processAuthResponse(response);
-
+    
     if (authResponse->success()) {
-        LOG_INFO("Verification code sent successfully");
         emit verificationCodeSent();
     } else {
         LOG_WARNING(QString("Verification code failed: %1").arg(authResponse->message()));
-        emit verificationCodeFailed(authResponse->message());
+        
+        // 根据错误类型提供更友好的提示
+        QString userFriendlyMessage = getVerificationCodeErrorMessage(authResponse->errorCode(), authResponse->message());
+        emit verificationCodeFailed(userFriendlyMessage);
     }
 
+    authResponse->deleteLater();
+}
+
+void AuthManager::onUsernameAvailabilityResponse(const QString &requestId, const QJsonObject &response)
+{
+    LOG_INFO(QString("Username availability response received: %1").arg(requestId));
+    
+    AuthResponse* authResponse = processAuthResponse(response);
+    
+    if (authResponse->success()) {
+        // 从data字段中读取结果
+        QJsonObject data = response["data"].toObject();
+        bool available = data["available"].toBool();
+        QString username = data["username"].toString();
+        emit usernameAvailabilityResult(username, available);
+    } else {
+        LOG_WARNING(QString("Username availability check failed: %1").arg(authResponse->message()));
+        // 失败时从data字段中读取username，如果没有则从response中读取
+        QJsonObject data = response["data"].toObject();
+        QString username = data["username"].toString();
+        if (username.isEmpty()) {
+            username = response["username"].toString();
+        }
+        emit usernameAvailabilityResult(username, false);
+    }
+    
+    authResponse->deleteLater();
+}
+
+void AuthManager::onEmailAvailabilityResponse(const QString &requestId, const QJsonObject &response)
+{
+    LOG_INFO(QString("Email availability response received: %1").arg(requestId));
+    
+    AuthResponse* authResponse = processAuthResponse(response);
+    
+    if (authResponse->success()) {
+        // 从data字段中读取结果
+        QJsonObject data = response["data"].toObject();
+        bool available = data["available"].toBool();
+        QString email = data["email"].toString();
+        emit emailAvailabilityResult(email, available);
+    } else {
+        LOG_WARNING(QString("Email availability check failed: %1").arg(authResponse->message()));
+        // 失败时从data字段中读取email，如果没有则从response中读取
+        QJsonObject data = response["data"].toObject();
+        QString email = data["email"].toString();
+        if (email.isEmpty()) {
+            email = response["email"].toString();
+        }
+        emit emailAvailabilityResult(email, false);
+    }
+    
     authResponse->deleteLater();
 }
 
@@ -450,7 +539,6 @@ void AuthManager::onNetworkError(const QString &error)
     LOG_ERROR(QString("Network error: %1").arg(error));
 
     setAuthState(Idle);
-    _pendingRequests.clear();
 
     emit networkError(error);
 }
@@ -496,7 +584,6 @@ void AuthManager::performAutoLogin(const QString &username, const QString &passw
         return;
     }
 
-    _pendingRequests[requestId] = "login";
     LOG_INFO("Auto login request sent");
 }
 
@@ -511,4 +598,66 @@ void AuthManager::setAuthState(AuthState state)
 AuthResponse* AuthManager::processAuthResponse(const QJsonObject &response)
 {
     return new AuthResponse(response, this);
+}
+
+QString AuthManager::getVerificationCodeErrorMessage(const QString &errorCode, const QString &originalMessage)
+{
+    if (errorCode == "RATE_LIMITED") {
+        return originalMessage; // 服务器已经提供了具体的等待时间
+    } else if (errorCode == "IP_RATE_LIMITED") {
+        return originalMessage; // 服务器已经提供了具体的等待时间
+    } else if (errorCode == "VALIDATION_ERROR") {
+        if (originalMessage.contains("邮箱格式无效")) {
+            return "邮箱地址格式不正确，请检查后重试";
+        }
+        return "输入信息有误，请检查后重试";
+    } else if (errorCode == "SERVICE_ERROR") {
+        return "验证码服务暂时不可用，请稍后重试";
+    } else if (errorCode == "CODE_GENERATION_FAILED") {
+        return "验证码生成失败，请稍后重试";
+    } else if (errorCode == "SEND_FAILED") {
+        return "验证码发送失败，请重试";
+    } else if (errorCode == "DUPLICATE_REQUEST") {
+        return "请求正在处理中，请勿重复提交";
+    } else if (errorCode == "REGISTER_FAILED") {
+        // 注册失败的错误处理
+        if (originalMessage.contains("用户名已存在")) {
+            return "用户名已被占用，请尝试其他用户名";
+        } else if (originalMessage.contains("邮箱已存在")) {
+            return "邮箱已被注册，请尝试其他邮箱";
+        } else if (originalMessage.contains("验证码无效")) {
+            return "验证码错误或已过期，请重新获取";
+        }
+        return originalMessage;
+    } else {
+        // 如果没有特定的错误代码，使用服务器返回的消息
+        return originalMessage;
+    }
+}
+
+QString AuthManager::getRegisterErrorMessage(const QString &errorCode, const QString &originalMessage)
+{
+    if (errorCode == "RATE_LIMITED") {
+        return originalMessage; // 服务器已经提供了具体的等待时间
+    } else if (errorCode == "IP_RATE_LIMITED") {
+        return originalMessage; // 服务器已经提供了具体的等待时间
+    } else if (errorCode == "VALIDATION_ERROR") {
+        if (originalMessage.contains("用户名已存在")) {
+            return "用户名已被占用，请尝试其他用户名";
+        } else if (originalMessage.contains("邮箱已存在")) {
+            return "邮箱已被注册，请尝试其他邮箱";
+        } else if (originalMessage.contains("用户名格式无效")) {
+            return "用户名格式不正确，请检查后重试";
+        } else if (originalMessage.contains("邮箱格式无效")) {
+            return "邮箱地址格式不正确，请检查后重试";
+        }
+        return "输入信息有误，请检查后重试";
+    } else if (errorCode == "SERVICE_ERROR") {
+        return "注册服务暂时不可用，请稍后重试";
+    } else if (errorCode == "DUPLICATE_REQUEST") {
+        return "请求正在处理中，请勿重复提交";
+    } else {
+        // 如果没有特定的错误代码，使用服务器返回的消息
+        return originalMessage;
+    }
 }

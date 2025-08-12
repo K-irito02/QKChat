@@ -15,6 +15,10 @@
         <file>qml/components/MessageDialog.qml</file>
         <file>qml/components/SettingsManager.qml</file>
         <file>qml/components/PageTransition.qml</file>
+        <file>qml/components/FriendListView.qml</file>
+        <file>qml/components/FriendListItem.qml</file>
+        <file>qml/components/ChatView.qml</file>
+        <file>qml/components/MessageBubble.qml</file>
         <file>qml/components/qmldir</file>
     </qresource>
 </RCC>

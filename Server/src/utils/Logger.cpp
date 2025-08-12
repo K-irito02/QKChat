@@ -80,8 +80,6 @@ void Logger::shutdown()
     s_initialized = false;
 }
 
-
-
 void Logger::info(const QString &message, const QString &function, int line)
 {
     writeLog(INFO, message, function, line);
@@ -138,7 +136,7 @@ void Logger::logDatabase(const QString &operation, const QString &table,
     }
     
     if (success) {
-    
+        info(logMsg);
     } else {
         error(logMsg);
     }

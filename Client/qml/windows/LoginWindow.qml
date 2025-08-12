@@ -12,16 +12,12 @@ import "../components" as Components
 ApplicationWindow {
     id: loginWindow
     
-    width: 450
-    height: 600
+    width: 425
+    height: 700
     minimumWidth: 400
     minimumHeight: 500
-    
+
     title: qsTr("QKChat - 登录")
-    
-    // 窗口居中显示
-    x: (Screen.width - width) / 2
-    y: (Screen.height - height) / 2
     
     // 公共属性
     property var themeManager

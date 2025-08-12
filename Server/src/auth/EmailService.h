@@ -111,10 +111,7 @@ public:
      */
     void setCodeExpiration(int minutes = 5);
     
-    /**
-     * @brief 清理过期的验证码和发送记录
-     */
-    void cleanup();
+    // 移除自动清理功能，由客户端控制验证码发送
 
 signals:
     /**
@@ -132,7 +129,7 @@ signals:
     void emailError(const QString &email, const QString &error);
 
 private slots:
-    void onCleanupTimer();
+    // 移除清理定时器，由客户端控制验证码发送
 
 private:
 
@@ -187,7 +184,7 @@ private slots:
 private:
     DatabaseManager* _databaseManager;
     RedisClient* _redisClient;
-    QTimer* _cleanupTimer;
+    // 移除清理定时器，由客户端控制验证码发送
     SmtpClient* _smtpClient;
     
     // SMTP配置

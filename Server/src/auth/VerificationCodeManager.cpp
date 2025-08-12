@@ -20,20 +20,35 @@ VerificationCodeManager::~VerificationCodeManager()
 
 VerificationCodeManager* VerificationCodeManager::instance()
 {
-    static VerificationCodeManager* instance = nullptr;
-    if (!instance) {
-        instance = new VerificationCodeManager();
+    static QMutex instanceMutex;
+    static QAtomicPointer<VerificationCodeManager> instance;
+    
+    // 双重检查锁定模式，确保线程安全
+    VerificationCodeManager* tmp = instance.loadAcquire();
+    if (!tmp) {
+        QMutexLocker locker(&instanceMutex);
+        tmp = instance.loadAcquire();
+        if (!tmp) {
+            tmp = new VerificationCodeManager();
+            instance.storeRelease(tmp);
+        }
     }
-    return instance;
+    return tmp;
 }
 
-QString VerificationCodeManager::generateAndSaveCode(const QString &email, CodeType codeType, int expireMinutes)
+QString VerificationCodeManager::generateAndSaveCode(const QString &email, const QString &ipAddress, CodeType codeType, int expireMinutes)
 {
     QMutexLocker locker(&_mutex);
     
-    // 检查频率限制
+    // 检查邮箱频率限制
     if (!isAllowedToSend(email, 60)) { // 默认60秒间隔
         LOG_WARNING(QString("Rate limited for email: %1").arg(email));
+        return QString();
+    }
+    
+    // 检查IP地址频率限制
+    if (!isIPAllowedToSend(ipAddress, 30)) { // IP地址限制30秒间隔
+        LOG_WARNING(QString("Rate limited for IP: %1").arg(ipAddress));
         return QString();
     }
     
@@ -67,8 +82,54 @@ QString VerificationCodeManager::generateAndSaveCode(const QString &email, CodeT
     
     // 记录发送历史
     recordSendHistory(email);
+    recordIPSendHistory(ipAddress);
     
-    LOG_INFO(QString("Verification code generated and saved for email: %1, code: %2").arg(email).arg(code));
+    LOG_INFO(QString("Verification code generated and saved for email: %1, IP: %2, code: %3").arg(email).arg(ipAddress).arg(code));
+    return code;
+}
+
+QString VerificationCodeManager::generateAndSaveCodeInternal(const QString &email, CodeType codeType, int expireMinutes)
+{
+    QMutexLocker locker(&_mutex);
+    
+    // 检查邮箱频率限制
+    if (!isAllowedToSend(email, 60)) { // 默认60秒间隔
+        LOG_WARNING(QString("Rate limited for email: %1").arg(email));
+        return QString();
+    }
+    
+    // 处理旧验证码：标记为已使用，避免覆盖问题
+    invalidateOldCodes(email, codeType);
+    
+    // 生成验证码
+    QString code = generateCode();
+    if (code.isEmpty()) {
+        LOG_ERROR("Failed to generate verification code");
+        return QString();
+    }
+    
+    // 验证生成的验证码格式
+    if (!Validator::isValidVerificationCode(code, 6)) {
+        LOG_ERROR(QString("Generated invalid verification code: %1").arg(code));
+        return QString();
+    }
+    
+    // 保存到数据库
+    if (!saveToDatabase(email, code, codeType, expireMinutes)) {
+        LOG_ERROR(QString("Failed to save verification code to database for email: %1").arg(email));
+        return QString();
+    }
+    
+    // 缓存到Redis
+    if (!cacheToRedis(email, code, expireMinutes)) {
+        LOG_WARNING(QString("Failed to cache verification code to Redis for email: %1").arg(email));
+        // Redis缓存失败不影响整体流程
+    }
+    
+    // 记录发送历史（只记录邮箱，不记录IP）
+    recordSendHistory(email);
+    
+    LOG_INFO(QString("Verification code generated and saved for email: %1, code: %2 (internal use)").arg(email).arg(code));
     return code;
 }
 
@@ -162,6 +223,55 @@ bool VerificationCodeManager::isAllowedToSend(const QString &email, int minInter
     QDateTime now = QDateTime::currentDateTime();
     
     return lastSend.secsTo(now) >= minIntervalSeconds;
+}
+
+int VerificationCodeManager::getRemainingWaitTime(const QString &email, int minIntervalSeconds)
+{
+    if (!_lastSendTime.contains(email)) {
+        return 0; // 可以立即发送
+    }
+    
+    QDateTime lastSend = _lastSendTime[email];
+    QDateTime now = QDateTime::currentDateTime();
+    int elapsed = lastSend.secsTo(now);
+    
+    // 减少频率限制时间，从60秒改为30秒
+    int actualInterval = qMin(minIntervalSeconds, 30);
+    
+    if (elapsed >= actualInterval) {
+        return 0; // 可以立即发送
+    }
+    
+    return actualInterval - elapsed; // 返回剩余等待时间
+}
+
+bool VerificationCodeManager::isIPAllowedToSend(const QString &ipAddress, int minIntervalSeconds)
+{
+    if (!_lastIPSendTime.contains(ipAddress)) {
+        return true;
+    }
+    
+    QDateTime lastSend = _lastIPSendTime[ipAddress];
+    QDateTime now = QDateTime::currentDateTime();
+    
+    return lastSend.secsTo(now) >= minIntervalSeconds;
+}
+
+int VerificationCodeManager::getIPRemainingWaitTime(const QString &ipAddress, int minIntervalSeconds)
+{
+    if (!_lastIPSendTime.contains(ipAddress)) {
+        return 0; // 可以立即发送
+    }
+    
+    QDateTime lastSend = _lastIPSendTime[ipAddress];
+    QDateTime now = QDateTime::currentDateTime();
+    int elapsed = lastSend.secsTo(now);
+    
+    if (elapsed >= minIntervalSeconds) {
+        return 0; // 可以立即发送
+    }
+    
+    return minIntervalSeconds - elapsed; // 返回剩余等待时间
 }
 
 QString VerificationCodeManager::generateCode()
@@ -312,6 +422,11 @@ QString VerificationCodeManager::codeTypeToString(CodeType codeType)
 void VerificationCodeManager::recordSendHistory(const QString &email)
 {
     _lastSendTime[email] = QDateTime::currentDateTime();
+}
+
+void VerificationCodeManager::recordIPSendHistory(const QString &ipAddress)
+{
+    _lastIPSendTime[ipAddress] = QDateTime::currentDateTime();
 }
 
 void VerificationCodeManager::invalidateOldCodes(const QString &email, CodeType codeType)

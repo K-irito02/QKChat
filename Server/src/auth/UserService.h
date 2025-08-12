@@ -47,16 +47,7 @@ public:
      */
     QPair<AuthResult, User*> authenticateUser(const QString &username, const QString &password);
     
-    /**
-     * @brief 用户注册
-     * @param username 用户名
-     * @param email 邮箱
-     * @param password 原始密码
-     * @param verificationCode 验证码
-     * @return 注册结果和用户信息
-     */
-    QPair<AuthResult, User*> registerUser(const QString &username, const QString &email, 
-                                         const QString &password, const QString &verificationCode);
+
     
     /**
      * @brief 根据ID获取用户

@@ -27,11 +27,12 @@ public:
      * @brief 客户端状态枚举
      */
     enum ClientState {
-        Connected,
-        Authenticating,
-        Authenticated,
-        Disconnected,
-        Error
+        Initialized,    // 已初始化但未连接
+        Connected,      // 已连接但未认证
+        Authenticating, // 正在认证
+        Authenticated,  // 已认证
+        Disconnected,   // 已断开
+        Error          // 错误状态
     };
     Q_ENUM(ClientState)
 
@@ -124,6 +125,17 @@ public:
      * @return 客户端信息JSON对象
      */
     QJsonObject getClientInfo() const;
+    
+    /**
+     * @brief 启动客户端处理
+     */
+    Q_INVOKABLE void startProcessing();
+
+    // 线程安全的信号发射方法
+    Q_INVOKABLE void emitConnected();
+    Q_INVOKABLE void emitDisconnected();
+    Q_INVOKABLE void emitAuthenticated(qint64 userId);
+    Q_INVOKABLE void emitMessageReceived(const QJsonObject &message);
 
 signals:
     /**
@@ -160,6 +172,7 @@ private slots:
     void onReadyRead();
     void onSocketError(QAbstractSocket::SocketError error);
     void onSslErrors(const QList<QSslError> &errors);
+    void onProtocolUserLoggedIn(qint64 userId, const QString &clientId, const QString &sessionToken);
 
 private:
     /**
@@ -224,7 +237,7 @@ private:
     QString generateClientId();
 
 private:
-    QSslSocket* _socket;
+    QAbstractSocket* _socket;
     ProtocolHandler* _protocolHandler;
     QString _clientId;
     qint64 _userId;

@@ -23,6 +23,8 @@ qt_add_executable(appClient
     src/models/User.cpp
     src/models/AuthResponse.h
     src/models/AuthResponse.cpp
+    src/models/FriendGroupManager.h
+    src/models/FriendGroupManager.cpp
     src/utils/Validator.h
     src/utils/Validator.cpp
     src/utils/Crypto.h
@@ -33,6 +35,8 @@ qt_add_executable(appClient
     src/utils/NetworkQualityMonitor.cpp
     src/utils/SmartErrorHandler.h
     src/utils/SmartErrorHandler.cpp
+    src/chat/ChatNetworkClient.h
+    src/chat/ChatNetworkClient.cpp
 )
 
 # 添加QML资源文件
@@ -53,6 +57,17 @@ qt_add_resources(appClient "qml"
         qml/components/MessageDialog.qml
         qml/components/SettingsManager.qml
         qml/components/PageTransition.qml
+        qml/components/FriendListView.qml
+        qml/components/FriendListItem.qml
+        qml/components/ChatView.qml
+        qml/components/MessageBubble.qml
+        qml/components/UserSearchDialog.qml
+        qml/components/UserSearchResultItem.qml
+        qml/components/UserDetailDialog.qml
+        qml/components/AddFriendConfirmDialog.qml
+        qml/components/GroupHeader.qml
+        qml/components/GroupManagementDialog.qml
+        qml/components/GroupedListView.qml
         qml/components/qmldir
 )
 

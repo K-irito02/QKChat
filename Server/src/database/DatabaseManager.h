@@ -8,12 +8,13 @@
 #include <QString>
 #include <QMutex>
 #include <QRecursiveMutex>
+#include "DatabaseConnectionPool.h"
 
 /**
  * @brief 数据库管理器类（服务器端）
  * 
  * 负责管理与MySQL数据库的连接，提供数据库操作的基础功能。
- * 支持连接池、事务处理、错误处理等高级功能。
+ * 现在使用连接池提供高性能的并发数据库访问。
  */
 class DatabaseManager : public QObject
 {
@@ -27,22 +28,26 @@ public:
     static DatabaseManager* instance();
     
     /**
-     * @brief 初始化数据库连接
+     * @brief 初始化数据库连接池
      * @param host 数据库主机
      * @param port 数据库端口
      * @param database 数据库名称
      * @param username 用户名
      * @param password 密码
+     * @param minConnections 最小连接数
+     * @param maxConnections 最大连接数
      * @return 初始化是否成功
      */
     bool initialize(const QString &host = "localhost", 
                    int port = 3306,
                    const QString &database = "qkchat",
                    const QString &username = "root",
-                   const QString &password = "");
+                   const QString &password = "",
+                   int minConnections = 5,
+                   int maxConnections = 20);
     
     /**
-     * @brief 关闭数据库连接
+     * @brief 关闭数据库连接池
      */
     void close();
     
@@ -53,7 +58,7 @@ public:
     bool isConnected() const;
     
     /**
-     * @brief 执行SQL查询
+     * @brief 执行SQL查询（使用连接池）
      * @param sql SQL语句
      * @param params 参数列表
      * @return 查询结果
@@ -61,7 +66,7 @@ public:
     QSqlQuery executeQuery(const QString &sql, const QVariantList &params = QVariantList());
     
     /**
-     * @brief 执行SQL更新操作
+     * @brief 执行SQL更新操作（使用连接池）
      * @param sql SQL语句
      * @param params 参数列表
      * @return 影响的行数，-1表示失败
@@ -69,28 +74,18 @@ public:
     int executeUpdate(const QString &sql, const QVariantList &params = QVariantList());
     
     /**
-     * @brief 开始事务
-     * @return 是否成功
+     * @brief 执行事务操作
+     * @param operations 事务操作函数
+     * @return 事务是否成功
      */
-    bool beginTransaction();
-    
-    /**
-     * @brief 提交事务
-     * @return 是否成功
-     */
-    bool commitTransaction();
-    
-    /**
-     * @brief 回滚事务
-     * @return 是否成功
-     */
-    bool rollbackTransaction();
+    bool executeTransaction(std::function<bool(DatabaseConnection&)> operations);
     
     /**
      * @brief 获取最后插入的ID
+     * @param connection 数据库连接
      * @return 最后插入的ID
      */
-    qint64 lastInsertId() const;
+    qint64 lastInsertId(const QSqlDatabase& connection) const;
     
     /**
      * @brief 获取最后的错误信息
@@ -124,10 +119,22 @@ public:
     bool testConnection();
     
     /**
+     * @brief 获取数据库连接
+     * @return 数据库连接
+     */
+    QSqlDatabase getConnection();
+    
+    /**
      * @brief 优化数据库
      * @return 优化是否成功
      */
     bool optimizeDatabase();
+    
+    /**
+     * @brief 获取连接池统计信息
+     * @return 统计信息JSON对象
+     */
+    QJsonObject getConnectionPoolStatistics() const;
 
 signals:
     /**
@@ -147,17 +154,6 @@ private:
     ~DatabaseManager();
     
     /**
-     * @brief 重新连接数据库
-     * @return 重连是否成功
-     */
-    bool reconnect();
-    
-    /**
-     * @brief 设置数据库连接参数
-     */
-    void setupConnection();
-    
-    /**
      * @brief 记录数据库错误
      * @param error 错误信息
      */
@@ -167,18 +163,12 @@ private:
     static DatabaseManager* s_instance;
     static QMutex s_mutex;
     
-    QSqlDatabase _database;
-    QString _connectionName;
-    QString _host;
-    int _port;
-    QString _databaseName;
-    QString _username;
-    QString _password;
+    DatabaseConnectionPool* _connectionPool;
     
     bool _isConnected;
     QString _lastError;
     
-    mutable QRecursiveMutex _queryMutex;
+    mutable QMutex _errorMutex;
 };
 
 #endif // DATABASEMANAGER_H

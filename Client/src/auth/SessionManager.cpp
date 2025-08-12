@@ -117,7 +117,7 @@ bool SessionManager::createSession(User* user, const QString &sessionToken, bool
     // 保存用户主题设置
     _settings->setValue("user/theme", _currentUser->theme());
     
-    LOG_INFO(QString("Session created for user: %1").arg(_currentUser->username()));
+
     
     emit currentUserChanged();
     emit sessionTokenChanged();

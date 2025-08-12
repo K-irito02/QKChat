@@ -2,14 +2,13 @@
 #include <QJsonDocument>
 #include <QJsonParseError>
 
-
 // 正则表达式常量定义
 const QRegularExpression Validator::EMAIL_REGEX(
     R"(^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$)"
 );
 
 const QRegularExpression Validator::USERNAME_REGEX(
-    R"(^[a-zA-Z0-9_]{3,50}$)"
+    R"(^[a-zA-Z0-9_]{3,20}$)"
 );
 
 const QRegularExpression Validator::PHONE_REGEX(
@@ -77,7 +76,7 @@ bool Validator::isValidUsername(const QString &username)
     QString trimmed = username.trimmed();
     
     // 检查长度
-    if (trimmed.length() < 3 || trimmed.length() > 50) {
+    if (trimmed.length() < 3 || trimmed.length() > 20) {
         return false;
     }
     
@@ -459,7 +458,7 @@ void Validator::logSecurityEvent(const QString &eventType, const QString &severi
     if (severity == "HIGH" || severity == "CRITICAL") {
         // 安全事件日志已禁用，避免调试信息干扰
     } else {
-        qInfo() << logMessage;
+        // 验证失败日志已移除
     }
 }
 

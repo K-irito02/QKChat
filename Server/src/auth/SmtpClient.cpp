@@ -15,10 +15,10 @@ SmtpClient::SmtpClient(QObject *parent)
     , _state(Disconnected)
     , _expectedResponseCode(0)
     , _connectionTimeout(30000)
-    , _maxRetries(1)
     , _tlsStarted(false)
     , _authenticated(false)
     , _authStep(0)
+    , _sendingStep(0)
 {
     // 创建SSL套接字
     _socket = new QSslSocket(this);
@@ -87,12 +87,12 @@ QString SmtpClient::sendEmail(const EmailMessage &message)
     
     _emailQueue.enqueue(msg);
     
-    LOG_INFO(QString("Email queued: %1 -> %2 (Subject: %3)")
-             .arg(msg.from).arg(msg.to).arg(msg.subject));
-    
-    // 如果当前没有在发送邮件，立即开始处理队列
+    // 启动队列处理
     if (_state == Disconnected || _state == Error) {
         _queueTimer->start(100); // 延迟100ms开始处理
+    } else if (_state == Authenticated && _currentEmail.messageId.isEmpty()) {
+        locker.unlock();
+        processQueue();
     }
     
     return msg.messageId;
@@ -116,8 +116,6 @@ bool SmtpClient::connectToServer()
         setState(Error);
         return false;
     }
-    
-    LOG_INFO(QString("Connecting to SMTP server: %1:%2").arg(_host).arg(_port));
     
     setState(Connecting);
     _tlsStarted = false;
@@ -154,8 +152,6 @@ void SmtpClient::disconnectFromServer()
     
     _connectionTimer->stop();
     setState(Disconnected);
-    
-    LOG_INFO("Disconnected from SMTP server");
 }
 
 void SmtpClient::onConnected()
@@ -163,8 +159,6 @@ void SmtpClient::onConnected()
     _connectionTimer->stop();
     setState(Connected);
     _expectedResponseCode = 220; // 期待服务器欢迎消息
-    
-    LOG_INFO("Connected to SMTP server");
 }
 
 void SmtpClient::onDisconnected()
@@ -173,8 +167,6 @@ void SmtpClient::onDisconnected()
     _tlsStarted = false;
     _authenticated = false;
     _authStep = 0;
-    
-    LOG_INFO("Disconnected from SMTP server");
     
     // 如果队列中还有邮件，尝试重连
     if (!_emailQueue.isEmpty()) {
@@ -187,7 +179,7 @@ void SmtpClient::onReadyRead()
     QByteArray data = _socket->readAll();
     QString response = QString::fromUtf8(data).trimmed();
     
-
+    // SMTP response received
     
     _lastResponse = response;
     handleSmtpResponse(response);
@@ -238,6 +230,7 @@ void SmtpClient::processQueue()
     QMutexLocker locker(&_queueMutex);
     
     if (_emailQueue.isEmpty()) {
+        // Email queue is empty, stopping queue processing
         return;
     }
     
@@ -308,7 +301,6 @@ void SmtpClient::handleSmtpResponse(const QString &response)
                 // 认证成功
                 setState(Authenticated);
                 _authenticated = true;
-                LOG_INFO("SMTP authentication successful");
 
                 // 开始处理邮件队列
                 processQueue();
@@ -388,7 +380,7 @@ void SmtpClient::authenticate()
         return;
     }
 
-    LOG_INFO("Starting SMTP authentication");
+    // Starting SMTP authentication
     setState(Authenticating);
     _authStep = 0;  // 开始认证流程
 
@@ -404,8 +396,9 @@ void SmtpClient::sendCurrentEmail()
         return;
     }
 
-    LOG_INFO(QString("Sending email: %1").arg(_currentEmail.messageId));
+    // Sending email
     setState(Sending);
+    _sendingStep = 0; // 重置发送步骤
 
     // 发送MAIL FROM命令
     sendCommand(QString("MAIL FROM:<%1>").arg(_currentEmail.from));
@@ -414,26 +407,32 @@ void SmtpClient::sendCurrentEmail()
 
 void SmtpClient::handleEmailSendingResponse(int responseCode, const QString &responseText)
 {
-    static int sendingStep = 0; // 0: MAIL FROM, 1: RCPT TO, 2: DATA, 3: Content
-
     if (responseCode >= 400) {
+        LOG_ERROR(QString("SMTP error during email sending: %1 %2").arg(responseCode).arg(responseText));
         finishCurrentEmail(false, QString("%1 %2").arg(responseCode).arg(responseText));
         return;
     }
 
-    switch (sendingStep) {
+    switch (_sendingStep) {
         case 0: // MAIL FROM响应
             if (responseCode == 250) {
                 sendCommand(QString("RCPT TO:<%1>").arg(_currentEmail.to));
-                sendingStep = 1;
+                _sendingStep = 1;
+                _expectedResponseCode = 250;
+            } else {
+                LOG_ERROR(QString("MAIL FROM failed: %1 %2").arg(responseCode).arg(responseText));
+                finishCurrentEmail(false, QString("MAIL FROM failed: %1 %2").arg(responseCode).arg(responseText));
             }
             break;
 
         case 1: // RCPT TO响应
             if (responseCode == 250) {
                 sendCommand("DATA");
-                sendingStep = 2;
+                _sendingStep = 2;
                 _expectedResponseCode = 354;
+            } else {
+                LOG_ERROR(QString("RCPT TO failed: %1 %2").arg(responseCode).arg(responseText));
+                finishCurrentEmail(false, QString("RCPT TO failed: %1 %2").arg(responseCode).arg(responseText));
             }
             break;
 
@@ -444,23 +443,34 @@ void SmtpClient::handleEmailSendingResponse(int responseCode, const QString &res
                 _socket->write(emailContent.toUtf8());
                 _socket->write("\r\n.\r\n"); // 邮件结束标记
                 _socket->flush();
-                sendingStep = 3;
+                _sendingStep = 3;
                 _expectedResponseCode = 250;
+            } else {
+                LOG_ERROR(QString("DATA command failed: %1 %2").arg(responseCode).arg(responseText));
+                finishCurrentEmail(false, QString("DATA command failed: %1 %2").arg(responseCode).arg(responseText));
             }
             break;
 
         case 3: // 邮件发送完成
             if (responseCode == 250) {
                 finishCurrentEmail(true);
+            } else {
+                LOG_ERROR(QString("Email sending failed: %1 %2").arg(responseCode).arg(responseText));
+                finishCurrentEmail(false, QString("Email sending failed: %1 %2").arg(responseCode).arg(responseText));
             }
-            sendingStep = 0;
+            _sendingStep = 0; // 重置发送步骤
+            break;
+
+        default:
+            LOG_ERROR(QString("Invalid sending step: %1").arg(_sendingStep));
+            finishCurrentEmail(false, QString("Invalid sending step: %1").arg(_sendingStep));
+            _sendingStep = 0;
             break;
     }
 }
 
 void SmtpClient::finishCurrentEmail(bool success, const QString &error)
 {
-    
     if (_currentEmail.messageId.isEmpty()) {
         return;
     }
@@ -468,34 +478,16 @@ void SmtpClient::finishCurrentEmail(bool success, const QString &error)
     QString messageId = _currentEmail.messageId;
 
     if (success) {
-        LOG_INFO(QString("Email sent successfully: %1").arg(messageId));
         emit emailSent(messageId);
     } else {
         LOG_ERROR(QString("Email failed: %1 - %2").arg(messageId).arg(error));
-
-        // 检查是否需要重试
-        // 验证码邮件不允许重试，避免用户收到多封验证码邮件
-        if (!_currentEmail.isVerificationCode && _currentEmail.retryCount < _maxRetries) {
-            _currentEmail.retryCount++;
-            LOG_INFO(QString("Retrying email: %1 (attempt %2/%3)")
-                     .arg(messageId).arg(_currentEmail.retryCount).arg(_maxRetries));
-
-            QMutexLocker locker(&_queueMutex);
-            _emailQueue.prepend(_currentEmail); // 重新加入队列头部
-            locker.unlock();
-
-            _currentEmail = EmailMessage(); // 清空当前邮件
-            _queueTimer->start(5000); // 5秒后重试
-            return;
-        } else if (_currentEmail.isVerificationCode) {
-            LOG_WARNING(QString("Verification code email failed, no retry to prevent duplicates: %1").arg(messageId));
-        }
-
         emit emailFailed(messageId, error);
     }
 
-    // 清空当前邮件
+    // 清空当前邮件并重置状态
     _currentEmail = EmailMessage();
+    _sendingStep = 0; // 重置发送步骤
+    setState(Authenticated); // 回到认证状态，准备处理下一个邮件
 
     // 继续处理队列
     _queueTimer->start(100);

@@ -71,15 +71,22 @@ void AuthResponse::fromJson(const QJsonObject &json)
     QString errorMessage = json["error_message"].toString();
     QString sessionToken = json["session_token"].toString();
     
-
-    
     setSuccess(success);
-    // 如果是错误响应，使用error_message作为message
-    if (!success && !errorMessage.isEmpty()) {
-        setMessage(errorMessage);
+    
+    // 错误处理逻辑：优先使用error_message，如果没有则使用message
+    if (!success) {
+        if (!errorMessage.isEmpty()) {
+            setMessage(errorMessage);
+        } else if (!message.isEmpty()) {
+            setMessage(message);
+        } else {
+            setMessage("操作失败，请重试");
+        }
     } else {
-        setMessage(message);
+        // 成功响应使用message字段
+        setMessage(message.isEmpty() ? "操作成功" : message);
     }
+    
     setErrorCode(errorCode);
     setSessionToken(sessionToken);
     

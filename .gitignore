@@ -95,6 +95,11 @@ MCP/
 .augment/
 .cursor/
 .windsurfrules
+.codebuddy/
 
 # ===== 其它文件 =====
 问题记录/
+优化建议/
+.tasks/
+笔记/
+docs/

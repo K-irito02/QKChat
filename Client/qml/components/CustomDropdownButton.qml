@@ -154,7 +154,6 @@ Rectangle {
                 height: visible ? implicitHeight : 0
 
                 onTriggered: {
-                    currentText = modelData
                     customButton.menuItemSelected(modelData)
                 }
 

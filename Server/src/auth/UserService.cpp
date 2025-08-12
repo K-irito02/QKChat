@@ -1,5 +1,5 @@
 #include "UserService.h"
-#include "VerificationCodeManager.h"
+#include "UserRegistrationService.h"
 #include "../utils/Logger.h"
 #include "../utils/Crypto.h"
 #include "../utils/Validator.h"
@@ -81,98 +81,7 @@ QPair<UserService::AuthResult, User*> UserService::authenticateUser(const QStrin
     return qMakePair(Success, user);
 }
 
-QPair<UserService::AuthResult, User*> UserService::registerUser(const QString &username, const QString &email, 
-                                                               const QString &password, const QString &verificationCode)
-{
-    
-    // 验证输入数据
-    auto validation = validateUserData(username, email, password);
-    if (!validation.first) {
-        LOG_WARNING(QString("Registration validation failed: %1").arg(validation.second));
-        return qMakePair(ValidationError, nullptr);
-    }
-    
-    // 检查用户名是否已存在
-    if (isUsernameExists(username)) {
-        LOG_WARNING(QString("Registration failed: username already exists - %1").arg(username));
-        return qMakePair(UsernameExists, nullptr);
-    }
-    
-    // 检查邮箱是否已存在
-    if (isEmailExists(email)) {
-        LOG_WARNING(QString("Registration failed: email already exists - %1").arg(email));
-        return qMakePair(EmailExists, nullptr);
-    }
-    
-    // 额外检查：确保原始密码不为空且长度合理
-    if (password.isEmpty() || password.length() < 6) {
-        LOG_WARNING(QString("Registration failed: invalid password length - %1").arg(password.length()));
-        return qMakePair(ValidationError, nullptr);
-    }
-    
-    // 验证邮箱验证码
-    LOG_INFO(QString("Starting email verification for registration: %1, code: %2").arg(email).arg(verificationCode));
-    
-    VerificationCodeManager* codeManager = VerificationCodeManager::instance();
-    if (!codeManager) {
-        LOG_ERROR("VerificationCodeManager not available");
-        return qMakePair(DatabaseError, nullptr);
-    }
-    
-    VerificationCodeManager::VerificationResult verifyResult = codeManager->verifyCode(email, verificationCode, VerificationCodeManager::Registration);
-    
-    if (verifyResult != VerificationCodeManager::Success) {
-        QString errorMsg = VerificationCodeManager::getVerificationResultDescription(verifyResult);
-        LOG_WARNING(QString("Registration failed due to verification code error: %1 - %2 (result: %3)").arg(email).arg(errorMsg).arg((int)verifyResult));
-        return qMakePair(ValidationError, nullptr);
-    }
-    
-    LOG_INFO(QString("Email verification successful for registration: %1").arg(email));
-    
-    // 开始事务
-    if (!_databaseManager->beginTransaction()) {
-        LOG_ERROR("Failed to begin transaction for user registration");
-        return qMakePair(DatabaseError, nullptr);
-    }
-    
-    // 生成salt并计算密码哈希
-    // 客户端发送原始密码，服务器生成salt并计算哈希
-    QString salt = generateUserSalt();
-    QString serverPasswordHash = hashPassword(password, salt);
 
-    // 插入用户记录
-    QString sql = R"(
-        INSERT INTO users (username, email, password_hash, salt, display_name, status, email_verified, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'active', 1, NOW(), NOW())
-    )";
-
-    QVariantList params = {username, email, serverPasswordHash, salt, username}; // 使用username作为display_name
-    int result = _databaseManager->executeUpdate(sql, params);
-    
-    if (result <= 0) {
-        _databaseManager->rollbackTransaction();
-        LOG_ERROR(QString("Failed to insert user record: %1").arg(_databaseManager->lastError()));
-        return qMakePair(DatabaseError, nullptr);
-    }
-    
-    qint64 userId = _databaseManager->lastInsertId();
-    
-    // 提交事务
-    if (!_databaseManager->commitTransaction()) {
-        LOG_ERROR("Failed to commit transaction for user registration");
-        return qMakePair(DatabaseError, nullptr);
-    }
-    
-    // 获取创建的用户
-    User* user = getUserById(userId);
-    if (!user) {
-        LOG_ERROR("Failed to retrieve created user");
-        return qMakePair(DatabaseError, nullptr);
-    }
-    
-    LOG_INFO(QString("User registration successful: %1 (%2)").arg(username).arg(email));
-    return qMakePair(Success, user);
-}
 
 bool UserService::migrateUserStatuses()
 {
@@ -208,7 +117,7 @@ bool UserService::migrateUserStatuses()
         return false;
     }
     
-    LOG_INFO(QString("User status migration completed. Updated %1 users.").arg(result));
+
     return true;
 }
 
@@ -302,7 +211,7 @@ bool UserService::updateUser(User* user)
     int result = _databaseManager->executeUpdate(sql, params);
     
     if (result > 0) {
-        LOG_INFO(QString("User updated successfully: %1").arg(user->username()));
+    
         return true;
     } else {
         LOG_ERROR(QString("Failed to update user: %1").arg(user->username()));

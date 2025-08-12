@@ -7,15 +7,16 @@
 #include "database/DatabaseManager.h"
 #include "database/RedisClient.h"
 #include "auth/EmailService.h"
-#include "network/TcpServer.h"
+#include "network/ThreadPoolServer.h"
+#include "network/AsyncMessageQueue.h"
 #include "network/ProtocolHandler.h"
 #include "utils/Logger.h"
 
 /**
  * @brief 服务器管理器类
  * 
- * 负责协调和管理所有服务器组件，包括数据库、Redis、邮件服务、TCP服务器等。
- * 提供统一的服务器启动、停止和状态监控功能。
+ * 负责协调和管理所有服务器组件，包括数据库连接池、Redis、邮件服务、
+ * 线程池服务器、异步消息队列等。提供统一的服务器启动、停止和状态监控功能。
  */
 class ServerManager : public QObject
 {
@@ -126,12 +127,15 @@ signals:
     void serverError(const QString &error);
 
 private slots:
-    void onTcpClientConnected(ClientHandler* client);
-    void onTcpClientDisconnected(ClientHandler* client);
+    void onThreadPoolClientConnected(ClientHandler* client);
+    void onThreadPoolClientDisconnected(ClientHandler* client);
+    void onThreadPoolUserLoggedIn(qint64 userId, ClientHandler* client);
+    void onThreadPoolUserLoggedOut(qint64 userId);
     void onProtocolUserLoggedIn(qint64 userId, const QString &clientId, const QString &sessionToken);
     void onProtocolUserRegistered(qint64 userId, const QString &username, const QString &email);
     void onDatabaseConnectionChanged(bool connected);
     void onRedisConnectionChanged(bool connected);
+    void onMessageQueueError(const QString &error);
 
 private:
     /**
@@ -141,10 +145,10 @@ private:
     void setServerState(ServerState state);
     
     /**
-     * @brief 初始化数据库
+     * @brief 初始化数据库连接池
      * @return 初始化是否成功
      */
-    bool initializeDatabase();
+    bool initializeDatabasePool();
     
     /**
      * @brief 初始化Redis
@@ -159,10 +163,16 @@ private:
     bool initializeEmailService();
     
     /**
-     * @brief 初始化TCP服务器
+     * @brief 初始化线程池服务器
      * @return 初始化是否成功
      */
-    bool initializeTcpServer();
+    bool initializeThreadPoolServer();
+    
+    /**
+     * @brief 初始化异步消息队列
+     * @return 初始化是否成功
+     */
+    bool initializeMessageQueue();
 
 private slots:
     /**
@@ -185,7 +195,8 @@ private:
     DatabaseManager* _databaseManager;
     RedisClient* _redisClient;
     EmailService* _emailService;
-    TcpServer* _tcpServer;
+    ThreadPoolServer* _threadPoolServer;
+    AsyncMessageQueue* _messageQueue;
     ProtocolHandler* _protocolHandler;
     
     // 统计信息

@@ -166,7 +166,7 @@ void TcpServer::setHeartbeatInterval(int interval)
     _heartbeatInterval = interval;
     _heartbeatTimer->setInterval(interval);
     
-    LOG_INFO(QString("Heartbeat interval set to %1ms").arg(interval));
+
 }
 
 void TcpServer::setMaxClients(int maxClients)
@@ -213,18 +213,18 @@ void TcpServer::incomingConnection(qintptr socketDescriptor)
     if (_clients.size() >= _maxClients) {
         LOG_WARNING(QString("Rejected connection: maximum clients reached (%1)").arg(_maxClients));
         
-        QTcpSocket tempSocket;
-        tempSocket.setSocketDescriptor(socketDescriptor);
+        // 创建临时客户端处理器来发送拒绝消息
+        ClientHandler* tempClient = new ClientHandler(socketDescriptor, _protocolHandler, _useTLS, this);
         
         QJsonObject rejectMessage;
         rejectMessage["action"] = "connection_rejected";
         rejectMessage["reason"] = "Server full";
         rejectMessage["max_clients"] = _maxClients;
         
-        QJsonDocument doc(rejectMessage);
-        tempSocket.write(doc.toJson(QJsonDocument::Compact));
-        tempSocket.flush();
-        tempSocket.disconnectFromHost();
+        tempClient->sendMessage(rejectMessage);
+        
+        // 延迟删除临时客户端
+        QTimer::singleShot(1000, tempClient, &ClientHandler::deleteLater);
         
         return;
     }
@@ -294,8 +294,19 @@ void TcpServer::onClientDisconnected()
     
     emit clientDisconnected(client);
     
-    // 延迟删除客户端对象，避免在信号处理中删除
-    QTimer::singleShot(0, client, &ClientHandler::deleteLater);
+    // 使用更安全的删除策略
+    // 1. 先断开所有信号连接，防止在删除过程中触发信号
+    client->disconnect();
+    
+    // 2. 使用更长的延迟确保所有信号处理完成
+    // 3. 使用QTimer::singleShot确保在主线程中删除
+    QTimer::singleShot(1000, [client]() {
+        if (client) {
+            // 再次断开连接，确保安全
+            client->disconnect();
+            client->deleteLater();
+        }
+    });
 }
 
 void TcpServer::onClientAuthenticated(qint64 userId)
@@ -347,12 +358,16 @@ void TcpServer::cleanupClients()
     // 清理已断开的客户端在onClientDisconnected中处理
     // 这里可以添加其他清理逻辑
     
-    // 监控资源使用情况
+    // 定期记录服务器状态
+    static QMutex instanceMutex;
     static int checkCount = 0;
+    
+    QMutexLocker locker(&instanceMutex);
     checkCount++;
     
     if (checkCount % 10 == 0) { // 每10次检查记录一次
-
+        LOG_INFO(QString("Server status - Clients: %1, Total connections: %2, Total messages: %3")
+                 .arg(_clients.size()).arg(_totalConnections).arg(_totalMessages));
     }
 }
 

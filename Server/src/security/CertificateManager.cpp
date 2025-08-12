@@ -119,7 +119,7 @@ bool CertificateManager::loadCertificate(const QString &certPath, const QString 
         emit certificateExpiringSoon(certificate, daysRemaining);
     }
 
-    LOG_INFO(QString("Certificate loaded successfully: %1").arg(certPath));
+
     emit certificateLoaded();
 
     return success;
@@ -162,7 +162,7 @@ bool CertificateManager::generateSelfSignedCertificate(const QString &commonName
     _currentCertificate = certificate;
     _currentPrivateKey = privateKey;
 
-    LOG_INFO(QString("Self-signed certificate generated successfully for: %1").arg(commonName));
+
     emit certificateLoaded();
 
     return true;
@@ -377,7 +377,7 @@ void CertificateManager::setAutoCheckEnabled(bool enabled, int checkInterval)
     if (enabled) {
         _autoCheckTimer->setInterval(checkInterval);
         _autoCheckTimer->start();
-        LOG_INFO(QString("Certificate auto-check enabled with %1ms interval").arg(checkInterval));
+    
     } else {
         _autoCheckTimer->stop();
         LOG_INFO("Certificate auto-check disabled");

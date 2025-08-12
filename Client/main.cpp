@@ -7,15 +7,17 @@
 #include <QFile>
 #include <QTimer>
 #include <QLoggingCategory>
-#include <QDebug>
+
 #include <exception>
 
 #include "src/auth/AuthManager.h"
 #include "src/auth/SessionManager.h"
 #include "src/models/User.h"
 #include "src/models/AuthResponse.h"
+#include "src/models/FriendGroupManager.h"
 #include "src/utils/Logger.h"
 #include "src/DatabaseManager.h"
+#include "src/chat/ChatNetworkClient.h"
 
 int main(int argc, char *argv[])
 {
@@ -58,7 +60,7 @@ int main(int argc, char *argv[])
             if (!dbManager->initialize()) {
                 LOG_ERROR("Failed to initialize database");
             } else {
-                LOG_INFO("Database initialized successfully");
+            
             }
         } catch (const std::exception& e) {
             LOG_ERROR(QString("Exception during database initialization: %1").arg(e.what()));
@@ -72,6 +74,7 @@ int main(int argc, char *argv[])
     qmlRegisterType<AuthResponse>("QKChat", 1, 0, "AuthResponse");
     qmlRegisterType<AuthManager>("QKChat", 1, 0, "AuthManager");
     qmlRegisterType<SessionManager>("QKChat", 1, 0, "SessionManager");
+    qmlRegisterType<ChatNetworkClient>("QKChat", 1, 0, "ChatNetworkClient");
 
     // 创建QML引擎
     QQmlApplicationEngine engine;
@@ -84,22 +87,33 @@ int main(int argc, char *argv[])
     // 获取管理器实例（确保初始化顺序）
     AuthManager* authManager = nullptr;
     SessionManager* sessionManager = nullptr;
+    ChatNetworkClient* chatNetworkClient = nullptr;
+    FriendGroupManager* friendGroupManager = nullptr;
 
     try {
-        // 首先创建AuthManager实例
+        // 首先创建管理器实例
         authManager = AuthManager::instance();
         sessionManager = SessionManager::instance();
+        chatNetworkClient = ChatNetworkClient::instance();
+        friendGroupManager = new FriendGroupManager(&app);
 
         // 将管理器实例暴露给QML（先暴露，后初始化）
         engine.rootContext()->setContextProperty("authManager", authManager);
         engine.rootContext()->setContextProperty("sessionManager", sessionManager);
+        engine.rootContext()->setContextProperty("ChatNetworkClient", chatNetworkClient);
+        engine.rootContext()->setContextProperty("FriendGroupManager", friendGroupManager);
 
         // 异步初始化认证管理器，避免阻塞UI
-        QTimer::singleShot(50, [authManager]() {
+        QTimer::singleShot(50, [authManager, chatNetworkClient]() {
             if (!authManager->initialize("localhost", 8080, false)) {  // 禁用SSL
                 LOG_ERROR("Failed to initialize AuthManager");
             } else {
-                LOG_INFO("AuthManager initialized successfully");
+                // 初始化ChatNetworkClient
+                if (chatNetworkClient && !chatNetworkClient->initialize()) {
+                    LOG_ERROR("Failed to initialize ChatNetworkClient");
+                } else {
+                    LOG_INFO("ChatNetworkClient initialized successfully");
+                }
             }
         });
 
@@ -150,7 +164,7 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-        LOG_INFO("QKChat Client started successfully");
+    
 
         // 运行应用程序
         int result = app.exec();

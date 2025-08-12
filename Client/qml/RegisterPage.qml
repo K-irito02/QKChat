@@ -21,6 +21,12 @@ Rectangle {
     // 注册状态
     property bool isSendingCode: false
     property int countdown: 0
+    
+    // 可用性检查状态
+    property bool isCheckingUsername: false
+    property bool isCheckingEmail: false
+    property bool usernameAvailable: true
+    property bool emailAvailable: true
 
     // 信号
     signal navigateToLogin()
@@ -75,6 +81,52 @@ Rectangle {
             isSendingCode = false
         }
     }
+    
+    // 检查用户名可用性
+    function checkUsernameAvailability() {
+        var username = usernameInput.text.trim()
+        
+        if (username === "" || !validateUsername(username)) {
+            return
+        }
+        
+        if (typeof authManager === "undefined" || authManager === null) {
+            return
+        }
+        
+        if (!authManager.isConnected) {
+            return
+        }
+        
+        isCheckingUsername = true
+        if (!authManager.checkUsernameAvailability(username)) {
+            // 如果检查请求发送失败，重置状态
+            isCheckingUsername = false
+        }
+    }
+    
+    // 检查邮箱可用性
+    function checkEmailAvailability() {
+        var email = emailInput.text.trim()
+        
+        if (email === "" || !validateEmail(email)) {
+            return
+        }
+        
+        if (typeof authManager === "undefined" || authManager === null) {
+            return
+        }
+        
+        if (!authManager.isConnected) {
+            return
+        }
+        
+        isCheckingEmail = true
+        if (!authManager.checkEmailAvailability(email)) {
+            // 如果检查请求发送失败，重置状态
+            isCheckingEmail = false
+        }
+    }
 
     // 执行注册
     function performRegister() {
@@ -100,6 +152,9 @@ Rectangle {
         } else if (!validateUsername(username)) {
             usernameInput.setError("用户名只能包含字母、数字和下划线，长度3-20位")
             hasError = true
+        } else if (!usernameAvailable) {
+            usernameInput.setError("用户名已被使用")
+            hasError = true
         }
 
         if (email === "") {
@@ -107,6 +162,9 @@ Rectangle {
             hasError = true
         } else if (!validateEmail(email)) {
             emailInput.setError("请输入有效的邮箱地址")
+            hasError = true
+        } else if (!emailAvailable) {
+            emailInput.setError("邮箱已被注册")
             hasError = true
         }
 
@@ -268,18 +326,31 @@ Rectangle {
                     showClearButton: true
 
                     onTextChanged: clearError()
+                    onFocusChanged: {
+                        if (!focus && text.trim() !== "") {
+                            checkUsernameAvailability()
+                        }
+                    }
                 }
 
                 // 邮箱输入
                 Components.CustomTextField {
                     id: emailInput
                     Layout.fillWidth: true
+                    Layout.maximumWidth: 320
+                    Layout.alignment: Qt.AlignHCenter
                     Layout.preferredHeight: 48
                     themeManager: registerPage.themeManager
                     placeholderText: qsTr("邮箱地址")
+                    text: ""
                     showClearButton: true
 
                     onTextChanged: clearError()
+                    onFocusChanged: {
+                        if (!focus && text.trim() !== "") {
+                            checkEmailAvailability()
+                        }
+                    }
                 }
 
                 // 密码输入
@@ -535,7 +606,7 @@ Rectangle {
                 text: (typeof authManager !== "undefined" && authManager && authManager.isLoading) ? qsTr("注册中...") : qsTr("注册")
                 buttonType: "primary"
                 isLoading: (typeof authManager !== "undefined" && authManager && authManager.isLoading)
-                enabled: !isLoading
+                enabled: !(typeof authManager !== "undefined" && authManager && authManager.isLoading)
                 onClicked: performRegister()
             }
 
@@ -616,7 +687,34 @@ Rectangle {
         }
 
         function onRegisterFailed(error) {
-            messageDialog.showError("注册失败", error)
+            // 根据错误类型显示不同的标题和内容
+            var title = "注册失败"
+            var message = error
+            
+            if (error.includes("用户名已被占用")) {
+                title = "用户名已存在"
+                message = "该用户名已被其他用户使用，请尝试其他用户名"
+            } else if (error.includes("邮箱已被注册")) {
+                title = "邮箱已存在"
+                message = "该邮箱已被注册，请使用其他邮箱或尝试登录"
+            } else if (error.includes("验证码错误")) {
+                title = "验证码错误"
+                message = "验证码输入错误或已过期，请重新获取验证码"
+            } else if (error.includes("发送过于频繁")) {
+                title = "发送频繁"
+                message = error
+            } else if (error.includes("验证码发送频繁")) {
+                title = "发送频繁"
+                message = error
+            } else if (error.includes("网络连接")) {
+                title = "网络错误"
+                message = "网络连接异常，请检查网络后重试"
+            } else if (error.includes("服务不可用")) {
+                title = "服务错误"
+                message = "服务器暂时不可用，请稍后重试"
+            }
+            
+            messageDialog.showError(title, message)
         }
 
         function onVerificationCodeSent() {
@@ -624,13 +722,57 @@ Rectangle {
         }
 
         function onVerificationCodeFailed(error) {
-            messageDialog.showError("发送失败", error)
+            // 根据错误类型显示不同的标题
+            var title = "发送失败"
+            var message = error
+            
+            if (error.includes("验证码发送频繁") || error.includes("发送过于频繁")) {
+                title = "发送频繁"
+                message = error
+            } else if (error.includes("邮箱地址格式不正确")) {
+                title = "邮箱格式错误"
+                message = "请输入正确的邮箱地址格式"
+            } else if (error.includes("网络连接错误")) {
+                title = "网络错误"
+                message = "网络连接异常，请检查网络后重试"
+            } else if (error.includes("验证码服务暂时不可用")) {
+                title = "服务不可用"
+                message = "验证码服务暂时不可用，请稍后重试"
+            } else if (error.includes("请求正在处理中")) {
+                title = "请求处理中"
+                message = "验证码请求正在处理中，请勿重复点击"
+            }
+            
+            messageDialog.showError(title, message)
+            
             // 重置发送状态
             isSendingCode = false
             countdownTimer.stop()
             countdown = 0
             // 重新启用发送按钮
             sendCodeButton.enabled = true
+        }
+        
+        function onUsernameAvailabilityResult(username, available) {
+            isCheckingUsername = false
+            usernameAvailable = available
+            
+            if (!available) {
+                usernameInput.setError("用户名已被使用")
+            } else {
+                usernameInput.clearError()
+            }
+        }
+        
+        function onEmailAvailabilityResult(email, available) {
+            isCheckingEmail = false
+            emailAvailable = available
+            
+            if (!available) {
+                emailInput.setError("邮箱已被注册")
+            } else {
+                emailInput.clearError()
+            }
         }
     }
 

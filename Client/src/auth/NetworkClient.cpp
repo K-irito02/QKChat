@@ -13,6 +13,8 @@
 // 静态成员初始化
 int NetworkClient::s_requestCounter = 0;
 QMutex NetworkClient::s_counterMutex;
+NetworkClient* NetworkClient::s_instance = nullptr;
+QMutex NetworkClient::s_instanceMutex;
 
 NetworkClient::NetworkClient(QObject *parent)
     : QObject(parent)
@@ -29,26 +31,27 @@ NetworkClient::NetworkClient(QObject *parent)
     , _connectionTimer(nullptr)
     , _heartbeatTimer(nullptr)
     , _reconnectTimer(nullptr)
+    , _isAuthenticated(false)
 {
-    LOG_INFO("=== NetworkClient constructor started ===");
+    // NetworkClient constructor
     
     // 简化对象创建
     try {
         // 创建普通TCP套接字而不是SSL套接字
         _socket = new QTcpSocket(this);
-        LOG_INFO("TCP socket created");
+
         
         // 创建定时器
         _connectionTimer = new QTimer(this);
         _connectionTimer->setSingleShot(true);
-        LOG_INFO("Connection timer created");
+
         
         _heartbeatTimer = new QTimer(this);
-        LOG_INFO("Heartbeat timer created");
+
         
         _reconnectTimer = new QTimer(this);
         _reconnectTimer->setSingleShot(true);
-        LOG_INFO("Reconnect timer created");
+
         
         // 连接信号（使用队列连接确保线程安全）
         connect(_socket, &QTcpSocket::connected, this, &NetworkClient::onConnected, Qt::QueuedConnection);
@@ -67,13 +70,11 @@ NetworkClient::NetworkClient(QObject *parent)
         // 暂时禁用复杂的网络质量监控和错误处理
         _qualityMonitor = nullptr;
         _errorHandler = nullptr;
-        LOG_INFO("Quality monitor and error handler disabled");
+
         
-        // 暂时注释掉SSL配置
-        // configureSsl();
-        LOG_INFO("SSL configuration disabled");
+
         
-        LOG_INFO("=== NetworkClient constructor completed successfully ===");
+
         
     } catch (const std::exception& e) {
         LOG_ERROR(QString("Exception in NetworkClient constructor: %1").arg(e.what()));
@@ -98,15 +99,7 @@ NetworkClient::~NetworkClient()
     // 断开连接
     disconnectFromServer();
     
-    // 清理新添加的对象（暂时禁用）
-    // if (_qualityMonitor) {
-    //     _qualityMonitor->deleteLater();
-    //     _qualityMonitor = nullptr;
-    // }
-    // if (_errorHandler) {
-    //     _errorHandler->deleteLater();
-    //     _errorHandler = nullptr;
-    // }
+
 }
 
 bool NetworkClient::connectToServer(const QString &host, quint16 port, bool useTLS)
@@ -122,13 +115,11 @@ bool NetworkClient::connectToServer(const QString &host, quint16 port, bool useT
     
     setConnectionState(Connecting);
     
-    LOG_INFO(QString("Connecting to server %1:%2 (TLS: disabled)")
-             .arg(host).arg(port));
+    
     
     // 启动连接超时定时器
     _connectionTimer->start(_connectionTimeout);
 
-    // 暂时禁用SSL，只使用普通TCP连接
     _socket->connectToHost(host, port);
     
     return true;
@@ -201,6 +192,10 @@ QString NetworkClient::sendRegisterRequest(const QString &username, const QStrin
 
 QString NetworkClient::sendVerificationCodeRequest(const QString &email)
 {
+    if (!isConnected()) {
+        return QString();
+    }
+    
     QJsonObject request;
     request["action"] = "send_verification_code";
     request["email"] = email;
@@ -209,7 +204,47 @@ QString NetworkClient::sendVerificationCodeRequest(const QString &email)
     if (!requestId.isEmpty()) {
         QMutexLocker locker(&_dataMutex);
         _pendingRequests[requestId] = "verification_code";
-        LOG_INFO(QString("Sent verification code request for email: %1").arg(email));
+        LOG_INFO(QString("Sent verification code request for: %1").arg(email));
+    }
+    
+    return requestId;
+}
+
+QString NetworkClient::sendCheckUsernameRequest(const QString &username)
+{
+    if (!isConnected()) {
+        return QString();
+    }
+    
+    QJsonObject request;
+    request["action"] = "check_username";
+    request["username"] = username;
+    
+    QString requestId = sendJsonRequest(request);
+    if (!requestId.isEmpty()) {
+        QMutexLocker locker(&_dataMutex);
+        _pendingRequests[requestId] = "check_username";
+        LOG_INFO(QString("Sent check username request for: %1").arg(username));
+    }
+    
+    return requestId;
+}
+
+QString NetworkClient::sendCheckEmailRequest(const QString &email)
+{
+    if (!isConnected()) {
+        return QString();
+    }
+    
+    QJsonObject request;
+    request["action"] = "check_email";
+    request["email"] = email;
+    
+    QString requestId = sendJsonRequest(request);
+    if (!requestId.isEmpty()) {
+        QMutexLocker locker(&_dataMutex);
+        _pendingRequests[requestId] = "check_email";
+        LOG_INFO(QString("Sent check email request for: %1").arg(email));
     }
     
     return requestId;
@@ -266,7 +301,7 @@ void NetworkClient::setHeartbeatInterval(int interval)
 
 void NetworkClient::onConnected()
 {
-    LOG_INFO("=== onConnected() called ===");
+
     
     try {
         // 基本连接处理
@@ -274,7 +309,7 @@ void NetworkClient::onConnected()
             _connectionTimer->stop();
         }
         
-        LOG_INFO("Connected to server successfully");
+
         
         // 设置连接状态
         if (_connectionState == Reconnecting) {
@@ -284,19 +319,19 @@ void NetworkClient::onConnected()
         }
         
         // 记录连接信息
-        LOG_INFO("Connected with plain TCP connection");
+
 
         // 启动心跳定时器
-        LOG_INFO("=== Starting heartbeat timer ===");
+
         
         if (_connectionState == Connected && _heartbeatTimer) {
-            LOG_INFO("Starting heartbeat timer");
+
             _heartbeatTimer->setSingleShot(false);
             _heartbeatTimer->setInterval(_heartbeatInterval);
             _heartbeatTimer->start();
             
             if (_heartbeatTimer->isActive()) {
-                LOG_INFO(QString("Heartbeat timer started successfully, interval: %1ms").arg(_heartbeatInterval));
+        
             } else {
                 LOG_ERROR("Failed to start heartbeat timer!");
             }
@@ -304,7 +339,7 @@ void NetworkClient::onConnected()
             LOG_WARNING("Cannot start heartbeat timer - not connected or timer is null");
         }
         
-        LOG_INFO("=== onConnected() completed successfully ===");
+
         
     } catch (const std::exception& e) {
         LOG_ERROR(QString("Exception in onConnected(): %1").arg(e.what()));
@@ -534,6 +569,61 @@ void NetworkClient::setConnectionState(ConnectionState state)
     }
 }
 
+QString NetworkClient::sendChatRequest(const QJsonObject &request)
+{
+    // Sending chat request
+    LOG_INFO(QString("Action: %1").arg(request["action"].toString()));
+    
+    if (!isConnected()) {
+        LOG_ERROR("Cannot send chat request: not connected to server");
+        LOG_ERROR("Failed to send chat request: not connected");
+        return QString();
+    }
+
+    QString requestId = generateRequestId();
+    LOG_INFO(QString("Generated request ID: %1").arg(requestId));
+    
+    QJsonObject requestWithId = request;
+    requestWithId["request_id"] = requestId;
+    requestWithId["timestamp"] = QDateTime::currentSecsSinceEpoch();
+
+    QJsonDocument doc(requestWithId);
+    QByteArray data = doc.toJson(QJsonDocument::Compact);
+    LOG_INFO(QString("Request JSON size: %1 bytes").arg(data.size()));
+
+    // 添加消息长度前缀（4字节）
+    QByteArray lengthPrefix;
+    QDataStream stream(&lengthPrefix, QIODevice::WriteOnly);
+    stream.setByteOrder(QDataStream::BigEndian);
+    stream << static_cast<quint32>(data.size());
+
+    QByteArray message = lengthPrefix + data;
+    LOG_INFO(QString("Total message size: %1 bytes").arg(message.size()));
+
+    qint64 bytesWritten = _socket->write(message);
+    if (bytesWritten == -1) {
+        LOG_ERROR("Failed to send chat request to server");
+        LOG_ERROR("Failed to write chat request to socket");
+        return QString();
+    }
+
+    LOG_INFO(QString("Bytes written: %1").arg(bytesWritten));
+    _socket->flush();
+    
+    LOG_INFO(QString("Chat request sent successfully: %1, ID: %2").arg(request["action"].toString()).arg(requestId));
+    
+    // 将聊天请求添加到待处理列表，但不设置请求类型（因为聊天请求由ChatNetworkClient处理）
+    {
+        QMutexLocker locker(&_dataMutex);
+        _pendingRequests[requestId] = "chat";
+        LOG_INFO(QString("Added chat request to pending list: %1 -> chat").arg(requestId));
+    }
+    
+    // Chat request sent successfully
+    
+    return requestId;
+}
+
 QString NetworkClient::sendJsonRequest(const QJsonObject &request)
 {
     if (!isConnected()) {
@@ -684,6 +774,14 @@ void NetworkClient::processJsonResponse(const QJsonObject &response)
             emit registerResponse(requestId, response);
         } else if (requestType == "verification_code") {
             emit verificationCodeResponse(requestId, response);
+        } else if (requestType == "check_username") {
+            emit usernameAvailabilityResponse(requestId, response);
+        } else if (requestType == "check_email") {
+            emit emailAvailabilityResponse(requestId, response);
+        } else if (requestType == "chat") {
+            // 聊天请求的响应直接转发给ChatNetworkClient
+            LOG_INFO(QString("Forwarding chat response to ChatNetworkClient: %1").arg(requestId));
+            emit messageReceived(response);
         }
     } else if (action == "heartbeat_response") {
         // 处理心跳响应
@@ -699,7 +797,9 @@ void NetworkClient::processJsonResponse(const QJsonObject &response)
         
         // 心跳响应不需要特殊处理，只是确认连接正常
     } else {
-        LOG_WARNING(QString("Received unknown response: %1").arg(requestId));
+        // 发送消息接收信号，让ChatNetworkClient处理
+        emit messageReceived(response);
+        LOG_INFO(QString("Forwarded message to ChatNetworkClient: %1").arg(requestId));
     }
 }
 
@@ -713,6 +813,7 @@ bool NetworkClient::isConnected() const
         }
         
         if (!_socket) {
+            LOG_ERROR("Socket is null in isConnected!");
             return false;
         }
         
@@ -730,6 +831,8 @@ bool NetworkClient::isConnected() const
         
         bool socketConnected = socketState == QAbstractSocket::ConnectedState;
         bool stateConnected = _connectionState == Connected;
+        
+        // Connection status check
         
         return socketConnected && stateConnected;
         
@@ -752,34 +855,67 @@ QString NetworkClient::generateRequestId()
            .arg(++s_requestCounter);
 }
 
-void NetworkClient::configureSsl()
+NetworkClient* NetworkClient::instance()
 {
-    // 暂时禁用SSL配置，因为现在使用普通TCP连接
-    LOG_INFO("SSL configuration disabled - using plain TCP connection");
-    
-    // try {
-    //     if (!_socket) {
-    //         LOG_ERROR("Socket is null in configureSsl()");
-    //         return;
-    //     }
-    //     
-    //     // 使用默认SSL配置
-    //     QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
-    //     sslConfig.setProtocol(QSsl::TlsV1_2);
-    //     sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
-    //     sslConfig.setPeerVerifyDepth(0);
-    //     
-    //     // 忽略SSL错误
-    //     _socket->ignoreSslErrors();
-    //     
-    //     // 设置SSL配置
-    //     _socket->setSslConfiguration(sslConfig);
-    //     
-    //     LOG_INFO("SSL configured successfully");
-    //     
-    // } catch (const std::exception& e) {
-    //     LOG_ERROR(QString("Exception in configureSsl(): %1").arg(e.what()));
-    // } catch (...) {
-    //     LOG_ERROR("Unknown exception in configureSsl()");
-    // }
+    if (!s_instance) {
+        QMutexLocker locker(&s_instanceMutex);
+        if (!s_instance) {
+            s_instance = new NetworkClient();
+        }
+    }
+    return s_instance;
 }
+
+void NetworkClient::sendMessage(const QJsonObject& message)
+{
+    if (!isConnected()) {
+        LOG_ERROR("Cannot send message: not connected to server");
+        return;
+    }
+    
+    QJsonDocument doc(message);
+    QByteArray data = doc.toJson(QJsonDocument::Compact);
+    
+    if (_socket && _socket->state() == QAbstractSocket::ConnectedState) {
+        _socket->write(data);
+        _socket->flush();
+        LOG_INFO(QString("Message sent: %1").arg(QString(data)));
+    } else {
+        LOG_ERROR("Socket not available or not connected");
+    }
+}
+
+QString NetworkClient::clientId() const
+{
+    return _clientId;
+}
+
+bool NetworkClient::isAuthenticated() const
+{
+    return _isAuthenticated;
+}
+
+QString NetworkClient::sessionToken() const
+{
+    return _sessionToken;
+}
+
+void NetworkClient::setAuthenticated(bool authenticated, const QString& token)
+{
+    LOG_INFO(QString("Setting authentication state: %1").arg(authenticated ? "true" : "false"));
+    
+    _isAuthenticated = authenticated;
+    if (authenticated && !token.isEmpty()) {
+        _sessionToken = token;
+        LOG_INFO(QString("Session token set: %1").arg(token.left(10) + "..."));
+    } else if (!authenticated) {
+        _sessionToken.clear();
+        LOG_INFO("Session token cleared");
+    }
+    
+    LOG_INFO(QString("Authentication state updated - isAuthenticated: %1, hasToken: %2")
+            .arg(_isAuthenticated ? "true" : "false")
+            .arg(_sessionToken.isEmpty() ? "false" : "true"));
+}
+
+

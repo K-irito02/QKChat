@@ -8,3 +8,20 @@ MessageDialog 1.0 MessageDialog.qml
 PageTransition 1.0 PageTransition.qml
 SettingsManager 1.0 SettingsManager.qml
 ThemeManager 1.0 ThemeManager.qml
+
+# 聊天相关组件
+FriendListView 1.0 FriendListView.qml
+FriendListItem 1.0 FriendListItem.qml
+ChatView 1.0 ChatView.qml
+MessageBubble 1.0 MessageBubble.qml
+
+# 添加好友相关组件
+UserSearchDialog 1.0 UserSearchDialog.qml
+UserSearchResultItem 1.0 UserSearchResultItem.qml
+UserDetailDialog 1.0 UserDetailDialog.qml
+AddFriendConfirmDialog 1.0 AddFriendConfirmDialog.qml
+
+# 分组管理相关组件
+GroupHeader 1.0 GroupHeader.qml
+GroupManagementDialog 1.0 GroupManagementDialog.qml
+GroupedListView 1.0 GroupedListView.qml

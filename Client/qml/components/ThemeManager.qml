@@ -67,6 +67,32 @@ QtObject {
         // 特殊效果颜色
         readonly property color rippleColor: "#007AFF20"
         readonly property color selectionColor: "#007AFF30"
+
+        // 聊天界面颜色
+        readonly property color sidebarBackgroundColor: "#F8F9FA"
+        readonly property color tabBarBackgroundColor: "#FFFFFF"
+        readonly property color activeTabColor: "#007AFF"
+        readonly property color activeTabTextColor: "#FFFFFF"
+        readonly property color tabTextColor: "#666666"
+        readonly property color headerBackgroundColor: "#FFFFFF"
+        readonly property color inputAreaBackgroundColor: "#F8F9FA"
+        readonly property color ownMessageBubbleColor: "#007AFF"
+        readonly property color otherMessageBubbleColor: "#E9ECEF"
+        readonly property color ownMessageBorderColor: "#0056CC"
+        readonly property color otherMessageBorderColor: "#DEE2E6"
+        readonly property color ownMessageTextColor: "#FFFFFF"
+        readonly property color otherMessageTextColor: "#000000"
+        readonly property color ownMessageSecondaryTextColor: "#E6F3FF"
+        readonly property color otherMessageSecondaryTextColor: "#666666"
+        readonly property color avatarBackgroundColor: "#E9ECEF"
+        readonly property color fileIconBackgroundColor: "#F8F9FA"
+        readonly property color scrollBarBackgroundColor: "#F0F0F0"
+        readonly property color scrollBarColor: "#CCCCCC"
+        readonly property color separatorColor: "#E0E0E0"
+        readonly property color hoveredItemColor: "#F8F9FA"
+        readonly property color selectedItemColor: "#E3F2FD"
+        readonly property color disabledButtonColor: "#E9ECEF"
+        readonly property color disabledTextColor: "#999999"
     }
 
     // 深色主题颜色方案
@@ -120,6 +146,32 @@ QtObject {
         // 特殊效果颜色
         readonly property color rippleColor: "#0A84FF20"
         readonly property color selectionColor: "#0A84FF30"
+
+        // 聊天界面颜色
+        readonly property color sidebarBackgroundColor: "#2C2C2E"
+        readonly property color tabBarBackgroundColor: "#1C1C1E"
+        readonly property color activeTabColor: "#0A84FF"
+        readonly property color activeTabTextColor: "#FFFFFF"
+        readonly property color tabTextColor: "#8E8E93"
+        readonly property color headerBackgroundColor: "#2C2C2E"
+        readonly property color inputAreaBackgroundColor: "#1C1C1E"
+        readonly property color ownMessageBubbleColor: "#0A84FF"
+        readonly property color otherMessageBubbleColor: "#38383A"
+        readonly property color ownMessageBorderColor: "#4DA6FF"
+        readonly property color otherMessageBorderColor: "#48484A"
+        readonly property color ownMessageTextColor: "#FFFFFF"
+        readonly property color otherMessageTextColor: "#FFFFFF"
+        readonly property color ownMessageSecondaryTextColor: "#B3D9FF"
+        readonly property color otherMessageSecondaryTextColor: "#8E8E93"
+        readonly property color avatarBackgroundColor: "#38383A"
+        readonly property color fileIconBackgroundColor: "#2C2C2E"
+        readonly property color scrollBarBackgroundColor: "#38383A"
+        readonly property color scrollBarColor: "#636366"
+        readonly property color separatorColor: "#38383A"
+        readonly property color hoveredItemColor: "#38383A"
+        readonly property color selectedItemColor: "#1E3A5F"
+        readonly property color disabledButtonColor: "#48484A"
+        readonly property color disabledTextColor: "#636366"
     }
 
     // 当前主题

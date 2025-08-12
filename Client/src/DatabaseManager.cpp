@@ -74,14 +74,14 @@ bool DatabaseManager::initialize()
         m_isConnected = true;
         m_initialized = true;
         
-        LOG_INFO("Database connection opened successfully");
+    
         
         // 异步创建表，避免阻塞主线程
         QTimer::singleShot(100, this, [this]() {
             if (!createTables()) {
                 LOG_ERROR("Failed to create database tables");
             } else {
-                LOG_INFO("Database tables created successfully");
+            
             }
         });
         
