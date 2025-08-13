@@ -85,7 +85,7 @@ QPair<UserService::AuthResult, User*> UserService::authenticateUser(const QStrin
 
 bool UserService::migrateUserStatuses()
 {
-    LOG_INFO("Starting user status migration...");
+    // LOG_INFO removed
     
     // 首先查询需要迁移的用户
     QString selectSql = R"(

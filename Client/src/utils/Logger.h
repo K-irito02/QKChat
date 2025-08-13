@@ -171,5 +171,6 @@ private:
 #define LOG_WARNING(msg) Logger::warning(msg, __FUNCTION__, __LINE__)
 #define LOG_ERROR(msg) Logger::error(msg, __FUNCTION__, __LINE__)
 #define LOG_CRITICAL(msg) Logger::critical(msg, __FUNCTION__, __LINE__)
+#define LOG_DEBUG(msg) Logger::info(msg, __FUNCTION__, __LINE__)  // 客户端使用INFO级别作为DEBUG
 
 #endif // LOGGER_H

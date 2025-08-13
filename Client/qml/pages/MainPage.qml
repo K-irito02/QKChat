@@ -1,7 +1,8 @@
-import QtQuick
-import QtQuick.Controls
-import QtQuick.Layouts
+import QtQuick 2.15
+import QtQuick.Controls 2.15
+import QtQuick.Layouts 1.15
 import "../components" as Components
+import "../windows" as Windows
 
 /**
  * @brief 聊天主界面
@@ -1610,7 +1611,6 @@ Rectangle {
 
                 onClicked: {
                     // TODO: 切换到选中的联系人聊天
-                    console.log("Selected contact:", model.name)
                 }
             }
         }
@@ -1807,7 +1807,6 @@ Rectangle {
 
                 onClicked: {
                     // TODO: 选择联系人
-                    console.log("Selected contact:", model.name)
                 }
 
                 Rectangle {
@@ -1844,7 +1843,7 @@ Rectangle {
         MenuItem {
             text: qsTr("查看资料")
             onTriggered: {
-                messageDialog.showInfo("功能开发中", "查看资料功能正在开发中")
+                showUserDetail(friendContextMenu.friendInfo)
             }
         }
 
@@ -2600,8 +2599,6 @@ Rectangle {
         themeManager: mainPage.themeManager
         networkClient: ChatNetworkClient
         messageDialog: mainPage.messageDialog
-        userDetailDialog: userDetailDialog
-        addFriendConfirmDialog: addFriendConfirmDialog
 
         onUserSelected: function(userInfo) {
             // 用户选择了某个用户，可以在这里处理
@@ -2612,36 +2609,247 @@ Rectangle {
             // 好友请求已发送
             messageDialog.showSuccess("请求已发送", "好友请求已发送给 " + (userInfo.display_name || userInfo.username))
         }
-    }
-
-    // 用户详细信息对话框
-    Components.UserDetailDialog {
-        id: userDetailDialog
-        themeManager: mainPage.themeManager
-        messageDialog: mainPage.messageDialog
-
-        onAddFriendClicked: {
-            addFriendConfirmDialog.targetUser = userDetailDialog.userInfo
-            addFriendConfirmDialog.open()
+        
+        onViewUserDetail: function(userInfo) {
+            showUserDetail(userInfo)
+        }
+        
+        onAddFriendRequest: function(userInfo) {
+            showAddFriend(userInfo)
+        }
+        
+        // 监听UserSearchDialog的可见性变化
+        onVisibleChanged: {
+            userSearchDialogVisible = userSearchDialog.visible
         }
     }
+    
+    // 窗口管理 - 动态创建多个窗口实例
 
-    // 添加好友确认对话框
-    Components.AddFriendConfirmDialog {
-        id: addFriendConfirmDialog
-        themeManager: mainPage.themeManager
-        messageDialog: mainPage.messageDialog
-
-        onFriendRequestConfirmed: function(requestData) {
-            // 发送好友请求到服务器
-            if (ChatNetworkClient) {
-                ChatNetworkClient.sendFriendRequest(
-                    requestData.target_user_identifier,
-                    requestData.message,
-                    requestData.remark,
-                    requestData.group
-                )
+    // 窗口管理 - 支持多个窗口同时存在
+    
+    // 窗口可见性状态管理
+    property bool userSearchDialogVisible: false
+    property bool userDetailWindowVisible: false
+    property bool addFriendWindowVisible: false
+    
+    // 多窗口管理 - 存储所有活跃的窗口
+    property var activeUserDetailWindows: []
+    property var activeAddFriendWindows: []
+    
+    // 窗口层级管理 - 动态窗口层级管理
+    
+    // 监听主窗口焦点变化，确保弹出窗口层级
+    onActiveFocusChanged: {
+        if (activeFocus) {
+            // 主窗口获得焦点时，确保所有弹出窗口都在主窗口之上
+            Qt.callLater(ensureAllWindowsAboveMain)
+        }
+    }
+    
+    // 确保所有弹出窗口都在聊天主界面之上
+    function ensureAllWindowsAboveMain() {
+        // 确保所有用户详情窗口都在聊天主界面之上
+        for (var i = 0; i < activeUserDetailWindows.length; i++) {
+            var window = activeUserDetailWindows[i]
+            if (window && window.visible) {
+                window.raise()
+                window.requestActivate()
             }
+        }
+        
+        // 确保所有添加好友窗口都在聊天主界面之上
+        for (var i = 0; i < activeAddFriendWindows.length; i++) {
+            var window = activeAddFriendWindows[i]
+            if (window && window.visible) {
+                window.raise()
+                window.requestActivate()
+            }
+        }
+        
+        // 确保UserSearchDialog在聊天主界面之上
+        if (userSearchDialog && userSearchDialog.visible) {
+            userSearchDialog.raise()
+            userSearchDialog.requestActivate()
+        }
+    }
+    
+
+    
+    // 显示用户详情窗口
+    function showUserDetail(user) {
+        // 检查是否已有相同用户的用户详情窗口
+        for (var i = 0; i < activeUserDetailWindows.length; i++) {
+            var window = activeUserDetailWindows[i]
+            if (window && window.userInfo && window.userInfo.user_id === user.user_id) {
+                window.raise()
+                return
+            }
+        }
+        
+        // 创建新的用户详情窗口
+        var component = Qt.createComponent("qrc:/qml/windows/UserDetailWindow.qml")
+        if (component.status === Component.Ready) {
+            var newWindow = component.createObject(null, {
+                "themeManager": mainPage.themeManager,
+                "messageDialog": mainPage.messageDialog
+            })
+            
+            if (newWindow) {
+                // 设置窗口层级标志，确保在聊天主界面之上
+                newWindow.flags = Qt.Window | Qt.WindowTitleHint | Qt.WindowSystemMenuHint | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint | Qt.WindowStaysOnTopHint
+                
+                newWindow.showUserDetail(user)
+                activeUserDetailWindows.push(newWindow)
+                userDetailWindowVisible = true
+                
+                // 确保窗口在聊天主界面之上
+                Qt.callLater(function() {
+                    if (newWindow && newWindow.visible) {
+                        newWindow.raise()
+                        newWindow.requestActivate()
+                    }
+                })
+                
+                // 连接信号
+                newWindow.addFriendClicked.connect(function() {
+                    onUserDetailAddFriendClicked(newWindow)
+                })
+                
+                newWindow.windowClosed.connect(function() {
+                    onUserDetailWindowClosed(newWindow)
+                })
+            } else {
+                // Failed to create userDetailWindow
+            }
+        } else {
+            // Failed to load UserDetailWindow component
+        }
+    }
+    
+    // 显示添加好友窗口
+    function showAddFriend(user) {
+        // 检查是否已有相同用户的添加好友窗口
+        for (var i = 0; i < activeAddFriendWindows.length; i++) {
+            var window = activeAddFriendWindows[i]
+            if (window && window.targetUser && window.targetUser.user_id === user.user_id) {
+                window.raise()
+                return
+            }
+        }
+        
+        // 创建新的添加好友窗口
+        var component = Qt.createComponent("qrc:/qml/windows/AddFriendWindow.qml")
+        if (component.status === Component.Ready) {
+            var newWindow = component.createObject(null, {
+                "themeManager": mainPage.themeManager,
+                "messageDialog": mainPage.messageDialog
+            })
+            
+            if (newWindow) {
+                // 设置窗口层级标志，确保在聊天主界面之上
+                newWindow.flags = Qt.Window | Qt.WindowTitleHint | Qt.WindowSystemMenuHint | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint | Qt.WindowStaysOnTopHint
+                
+                newWindow.showAddFriend(user)
+                activeAddFriendWindows.push(newWindow)
+                addFriendWindowVisible = true
+                
+                // 确保窗口在聊天主界面之上
+                Qt.callLater(function() {
+                    if (newWindow && newWindow.visible) {
+                        newWindow.raise()
+                        newWindow.requestActivate()
+                    }
+                })
+                
+                // 连接信号
+                newWindow.friendRequestConfirmed.connect(function(requestData) {
+                    onFriendRequestConfirmed(requestData)
+                })
+                
+                newWindow.windowClosed.connect(function() {
+                    onAddFriendWindowClosed(newWindow)
+                })
+            } else {
+                // Failed to create addFriendWindow
+            }
+        } else {
+                // Failed to load AddFriendWindow component
+        }
+    }
+    
+    // 用户详情窗口添加好友事件 - 窗口转换模式
+    function onUserDetailAddFriendClicked(sourceWindow) {
+        if (sourceWindow && sourceWindow.userInfo) {
+            // 删除其他相同用户的发送好友请求窗口
+            for (var i = activeAddFriendWindows.length - 1; i >= 0; i--) {
+                var existingWindow = activeAddFriendWindows[i]
+                if (existingWindow && existingWindow.targetUser && 
+                    existingWindow.targetUser.user_id === sourceWindow.userInfo.user_id) {
+                    existingWindow.close()
+                    activeAddFriendWindows.splice(i, 1)
+                }
+            }
+            
+            // 从用户详情窗口列表中移除当前窗口
+            var index = activeUserDetailWindows.indexOf(sourceWindow)
+            if (index !== -1) {
+                activeUserDetailWindows.splice(index, 1)
+            }
+            
+            // 关闭当前用户详情窗口
+            sourceWindow.close()
+            
+            // 创建新的发送好友请求窗口（替换原窗口位置）
+            showAddFriend(sourceWindow.userInfo)
+            
+            // 确保新窗口在正确位置显示
+            Qt.callLater(function() {
+                ensureAllWindowsAboveMain()
+            })
+        } else {
+            // sourceWindow or userInfo is null
+        }
+    }
+    
+    // 用户详情窗口关闭事件
+    function onUserDetailWindowClosed(closedWindow) {
+        // 从活跃窗口列表中移除
+        var index = activeUserDetailWindows.indexOf(closedWindow)
+        if (index !== -1) {
+            activeUserDetailWindows.splice(index, 1)
+        }
+        
+        // 更新可见性状态
+        userDetailWindowVisible = activeUserDetailWindows.length > 0
+    }
+    
+    // 添加好友窗口关闭事件
+    function onAddFriendWindowClosed(closedWindow) {
+        // 从活跃窗口列表中移除
+        var index = activeAddFriendWindows.indexOf(closedWindow)
+        if (index !== -1) {
+            activeAddFriendWindows.splice(index, 1)
+        }
+        
+        // 更新可见性状态
+        addFriendWindowVisible = activeAddFriendWindows.length > 0
+    }
+    
+    // 窗口层级管理 - 子组件方式，Qt自动处理
+    
+
+    
+    // 好友请求确认事件
+    function onFriendRequestConfirmed(requestData) {
+        // 发送好友请求到服务器
+        if (ChatNetworkClient) {
+            ChatNetworkClient.sendFriendRequest(
+                requestData.target_user_identifier,
+                requestData.message,
+                requestData.remark,
+                requestData.group
+            )
         }
     }
 
@@ -2679,8 +2887,7 @@ Rectangle {
         MenuItem {
             text: qsTr("查看资料")
             onTriggered: {
-                // View friend profile
-                // TODO: 打开用户资料窗口
+                showUserDetail(groupedFriendContextMenu.friendData)
             }
         }
 
@@ -2738,10 +2945,16 @@ Rectangle {
             // 处理好友请求发送结果
             if (success) {
                 messageDialog.showSuccess("请求已发送", "好友请求已成功发送")
-                // 关闭所有相关对话框
-                addFriendConfirmDialog.close()
-                userDetailDialog.close()
-                userSearchDialog.close()
+                // 关闭所有发送好友请求窗口，但保留其他窗口
+                for (var i = activeAddFriendWindows.length - 1; i >= 0; i--) {
+                    var window = activeAddFriendWindows[i]
+                    if (window) {
+                        window.close()
+                    }
+                }
+                activeAddFriendWindows = []
+                addFriendWindowVisible = false
+                // 不自动关闭用户详情窗口和搜索窗口，让用户自己决定
             } else {
                 messageDialog.showError("发送失败", message || "发送好友请求失败")
             }
@@ -2880,7 +3093,7 @@ Rectangle {
                 break
 
             default:
-                console.error("Unknown group management action:", action)
+                // Unknown group management action
         }
     }
 
@@ -2908,7 +3121,7 @@ Rectangle {
                 break
 
             default:
-                console.error("Unknown group category management action:", action)
+                // Unknown group category management action
         }
     }
 
@@ -2936,7 +3149,7 @@ Rectangle {
                 break
 
             default:
-                console.error("Unknown recent contact management action:", action)
+                // Unknown recent contact management action
         }
     }
 
@@ -2960,5 +3173,38 @@ Rectangle {
                 }
             })
         }
+        
+        // 预创建窗口（如果需要的话）
+        // Qt.callLater(function() {
+        //     createUserDetailWindow()
+        //     createAddFriendWindow()
+        // })
+    }
+    
+    // 组件销毁时清理窗口
+    Component.onDestruction: {
+        // 清理所有动态创建的用户详情窗口
+        for (var i = activeUserDetailWindows.length - 1; i >= 0; i--) {
+            var window = activeUserDetailWindows[i]
+            if (window) {
+                window.close()
+                window.destroy()
+            }
+        }
+        activeUserDetailWindows = []
+        userDetailWindowVisible = false
+        
+        // 清理所有动态创建的添加好友窗口
+        for (var i = activeAddFriendWindows.length - 1; i >= 0; i--) {
+            var window = activeAddFriendWindows[i]
+            if (window) {
+                window.close()
+                window.destroy()
+            }
+        }
+        activeAddFriendWindows = []
+        addFriendWindowVisible = false
     }
 }
+
+

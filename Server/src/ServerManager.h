@@ -86,6 +86,56 @@ public:
      */
     int getOnlineUserCount() const;
 
+    /**
+     * @brief 获取服务器状态信息
+     */
+    QJsonObject getServerStatus();
+    
+    /**
+     * @brief 获取高并发优化状态
+     */
+    QJsonObject getHighConcurrencyStatus();
+    
+    /**
+     * @brief 获取缓存统计信息
+     */
+    QJsonObject getCacheStatistics();
+    
+    /**
+     * @brief 获取限流统计信息
+     */
+    QJsonObject getRateLimitStatistics();
+    
+    /**
+     * @brief 获取连接池统计信息
+     */
+    QJsonObject getConnectionPoolStatistics();
+    
+    /**
+     * @brief 获取热点数据统计
+     */
+    QJsonObject getHotDataStatistics();
+    
+    /**
+     * @brief 手动清理缓存
+     */
+    bool clearCache(const QString& cacheType = "all");
+    
+    /**
+     * @brief 重置限流状态
+     */
+    bool resetRateLimit(const QString& identifier = "all");
+    
+    /**
+     * @brief 调整连接池大小
+     */
+    bool resizeConnectionPool(int minConnections, int maxConnections);
+    
+    /**
+     * @brief 启用/禁用自动调整
+     */
+    bool setAutoResizeEnabled(bool enabled);
+
 signals:
     /**
      * @brief 服务器状态改变信号
@@ -203,6 +253,8 @@ private:
     int _clientCount;
     qint64 _totalConnections;
     qint64 _totalRegistrations;
+    qint64 _totalRequests;
+    int _activeConnections;
     QDateTime _startTime;
 };
 

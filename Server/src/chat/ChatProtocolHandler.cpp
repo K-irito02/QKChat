@@ -38,7 +38,7 @@ bool ChatProtocolHandler::initialize()
     QMutexLocker locker(&_mutex);
     
     if (_initialized) {
-        LOG_INFO("ChatProtocolHandler already initialized");
+        // 聊天协议处理器已初始化
         return true;
     }
     
@@ -46,13 +46,8 @@ bool ChatProtocolHandler::initialize()
     
     // 获取服务实例
     _friendService = FriendService::instance();
-    LOG_INFO(QString("FriendService instance: %1").arg(_friendService ? "valid" : "null"));
-    
     _statusService = OnlineStatusService::instance();
-    LOG_INFO(QString("OnlineStatusService instance: %1").arg(_statusService ? "valid" : "null"));
-    
     _messageService = MessageService::instance();
-    LOG_INFO(QString("MessageService instance: %1").arg(_messageService ? "valid" : "null"));
     
     if (!_friendService || !_statusService || !_messageService) {
         LOG_ERROR("Failed to initialize ChatProtocolHandler: service instances not available");
@@ -61,13 +56,8 @@ bool ChatProtocolHandler::initialize()
     
     // 初始化服务
     bool friendInit = _friendService->initialize();
-    LOG_INFO(QString("FriendService initialization: %1").arg(friendInit ? "success" : "failed"));
-    
     bool statusInit = _statusService->initialize();
-    LOG_INFO(QString("OnlineStatusService initialization: %1").arg(statusInit ? "success" : "failed"));
-    
     bool messageInit = _messageService->initialize();
-    LOG_INFO(QString("MessageService initialization: %1").arg(messageInit ? "success" : "failed"));
     
     if (!friendInit || !statusInit || !messageInit) {
         LOG_ERROR("Failed to initialize ChatProtocolHandler: service initialization failed");
@@ -75,8 +65,7 @@ bool ChatProtocolHandler::initialize()
     }
     
     _initialized = true;
-    LOG_INFO("ChatProtocolHandler initialized successfully");
-    // Chat protocol handler initialized
+    // 聊天协议处理器初始化成功
     return true;
 }
 
@@ -87,12 +76,11 @@ QJsonObject ChatProtocolHandler::handleChatRequest(const QJsonObject& request, c
     QString action = request["action"].toString();
     QString requestId = request["request_id"].toString();
     
-    LOG_INFO(QString("Received request - Action: %1, RequestID: %2, UserID: %3, ClientIP: %4")
-            .arg(action).arg(requestId).arg(userId).arg(clientIP));
+    // 收到请求
     
     if (requestId.isEmpty()) {
         requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-        LOG_INFO(QString("Generated new request ID: %1").arg(requestId));
+        // 生成新的请求ID
     }
     
     // 记录请求日志
@@ -102,20 +90,20 @@ QJsonObject ChatProtocolHandler::handleChatRequest(const QJsonObject& request, c
     
     // 根据动作类型分发处理
     if (action.startsWith("friend_")) {
-        LOG_INFO("Routing to friend operations");
+        // 路由到好友操作
         result = handleFriendOperations(request, userId);
     } else if (action.startsWith("status_") || action == "heartbeat") {
-        LOG_INFO("Routing to status operations");
+        // 路由到状态操作
         result = handleStatusResponse(request, userId);
     } else if (action.startsWith("message_") || action == "send_message" || action == "get_chat_history") {
-        LOG_INFO("Routing to message operations");
+        // 路由到消息操作
         result = handleMessageResponse(request, userId);
     } else {
         LOG_ERROR(QString("Unknown action: %1").arg(action));
         result = createErrorResponse(requestId, action, "INVALID_ACTION", "Unknown action: " + action);
     }
     
-    LOG_INFO(QString("Request handled - Success: %1").arg(result["success"].toBool()));
+    // 请求处理完成
     // Chat request processed
     
     return result;
@@ -127,60 +115,58 @@ QJsonObject ChatProtocolHandler::handleFriendOperations(const QJsonObject& reque
     QString requestId = request["request_id"].toString();
     
     // Processing friend operations
-    LOG_INFO(QString("Action: %1").arg(action));
-    LOG_INFO(QString("Request ID: %1").arg(requestId));
-    LOG_INFO(QString("User ID: %1").arg(userId));
+    // 处理好友操作请求
     
     QJsonObject result;
     
     if (action == "friend_request") {
-        LOG_INFO("Handling friend_request");
+        // 处理好友请求
         result = handleFriendRequest(request, userId);
     } else if (action == "friend_response") {
-        LOG_INFO("Handling friend_response");
+        // 处理好友响应
         result = handleFriendResponse(request, userId);
     } else if (action == "friend_list") {
-        LOG_INFO("Handling friend_list");
+        // 处理好友列表
         result = handleGetFriendList(request, userId);
     } else if (action == "friend_requests") {
-        LOG_INFO("Handling friend_requests");
+        // 处理好友请求列表
         result = handleGetFriendRequests(request, userId);
     } else if (action == "friend_remove") {
-        LOG_INFO("Handling friend_remove");
+        // 处理删除好友
         result = handleRemoveFriend(request, userId);
     } else if (action == "friend_block") {
-        LOG_INFO("Handling friend_block");
+        // 处理屏蔽好友
         result = handleBlockUser(request, userId);
     } else if (action == "friend_unblock") {
-        LOG_INFO("Handling friend_unblock");
+        // 处理取消屏蔽好友
         result = handleUnblockUser(request, userId);
     } else if (action == "friend_search") {
-        LOG_INFO("Handling friend_search");
+        // 处理搜索好友
         result = handleSearchUsers(request, userId);
     } else if (action == "friend_note_update") {
-        LOG_INFO("Handling friend_note_update");
+        // 处理更新好友备注
         result = handleUpdateFriendNote(request, userId);
     } else if (action == "friend_groups") {
-        LOG_INFO("Handling friend_groups");
+        // 处理好友分组
         result = handleGetFriendGroups(request, userId);
     } else if (action == "friend_group_create") {
-        LOG_INFO("Handling friend_group_create");
+        // 处理创建好友分组
         result = handleCreateFriendGroup(request, userId);
     } else if (action == "friend_group_delete") {
-        LOG_INFO("Handling friend_group_delete");
+        // 处理删除好友分组
         result = handleDeleteFriendGroup(request, userId);
     } else if (action == "friend_group_rename") {
-        LOG_INFO("Handling friend_group_rename");
+        // 处理重命名好友分组
         result = handleRenameFriendGroup(request, userId);
     } else if (action == "friend_group_move") {
-        LOG_INFO("Handling friend_group_move");
+        // 处理移动好友到分组
         result = handleMoveFriendToGroup(request, userId);
     } else {
         LOG_ERROR(QString("Unknown friend action: %1").arg(action));
         result = createErrorResponse(requestId, action, "INVALID_ACTION", "Unknown friend action: " + action);
     }
     
-    LOG_INFO(QString("Operation result - Success: %1").arg(result["success"].toBool()));
+    // 好友操作完成
     // Friend operations processed
     
     return result;
@@ -357,7 +343,7 @@ QJsonObject ChatProtocolHandler::handleSearchUsers(const QJsonObject& request, q
     QString requestId = request["request_id"].toString();
     QString action = request["action"].toString();
 
-    LOG_INFO(QString("Handling search users request from user %1, keyword: '%2'").arg(userId).arg(request["keyword"].toString()));
+    // 处理搜索用户请求
 
     // 验证必需参数
     QString errorMessage;
@@ -369,11 +355,11 @@ QJsonObject ChatProtocolHandler::handleSearchUsers(const QJsonObject& request, q
     QString keyword = request["keyword"].toString();
     int limit = request["limit"].toInt(20);
 
-    LOG_INFO(QString("Searching users with keyword: '%1', limit: %2").arg(keyword).arg(limit));
+    // 搜索用户
 
     QJsonArray users = _friendService->searchUsers(keyword, userId, limit);
 
-    LOG_INFO(QString("Search completed, found %1 users").arg(users.size()));
+    // 用户搜索完成
 
     QJsonObject data;
     data["users"] = users;
@@ -778,8 +764,7 @@ bool ChatProtocolHandler::validateRequest(const QJsonObject& request, const QStr
 
 void ChatProtocolHandler::logRequest(const QString& action, const QString& requestId, qint64 userId, const QString& clientIP)
 {
-    LOG_INFO(QString("Chat request: action=%1, request_id=%2, user_id=%3, client_ip=%4")
-             .arg(action).arg(requestId).arg(userId).arg(clientIP));
+    // 处理聊天请求
 }
 
 // 好友分组相关方法实现

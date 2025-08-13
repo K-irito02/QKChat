@@ -160,6 +160,11 @@ signals:
     void sessionExpired();
     
     /**
+     * @brief 会话活动更新请求信号
+     */
+    void sessionActivityUpdateRequested();
+    
+    /**
      * @brief 需要自动登录信号
      * @param username 用户名
      * @param passwordHash 密码哈希
@@ -169,6 +174,7 @@ signals:
 private slots:
     void onSessionTimeout();
     void onSessionExpiringWarning();
+    void onActivityUpdate();
 
 private:
     /**
@@ -210,6 +216,7 @@ private:
     
     QTimer* _sessionTimer;
     QTimer* _expiringWarningTimer;
+    QTimer* _activityTimer;
     QSettings* _settings;
 };
 

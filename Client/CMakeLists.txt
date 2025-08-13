@@ -63,11 +63,11 @@ qt_add_resources(appClient "qml"
         qml/components/MessageBubble.qml
         qml/components/UserSearchDialog.qml
         qml/components/UserSearchResultItem.qml
-        qml/components/UserDetailDialog.qml
-        qml/components/AddFriendConfirmDialog.qml
         qml/components/GroupHeader.qml
         qml/components/GroupManagementDialog.qml
         qml/components/GroupedListView.qml
+        qml/windows/UserDetailWindow.qml
+        qml/windows/AddFriendWindow.qml
         qml/components/qmldir
 )
 

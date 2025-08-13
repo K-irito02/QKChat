@@ -1,5 +1,6 @@
 #include "ProtocolHandler.h"
 #include "../chat/ChatProtocolHandler.h"
+#include "../auth/SessionManager.h"
 #include "../utils/Logger.h"
 #include "../utils/Crypto.h"
 #include "../utils/Validator.h"
@@ -14,6 +15,7 @@ ProtocolHandler::ProtocolHandler(EmailService *emailService, QObject *parent)
     , _emailService(emailService)
     , _redisClient(RedisClient::instance())
     , _chatHandler(ChatProtocolHandler::instance())
+    , _sessionManager(SessionManager::instance())
     , _cleanupTimer(new QTimer(this))
 {
     // 如果没有提供EmailService，创建一个新的实例（向后兼容）
@@ -68,25 +70,25 @@ QJsonObject ProtocolHandler::handleMessage(const QJsonObject &message, const QSt
 
     switch (messageType) {
         case Login:
-            LOG_INFO("Routing to Login handler");
+            // LOG_INFO removed
             return handleLoginRequest(message, clientId, clientIP);
         case Register:
-            LOG_INFO("Routing to Register handler");
+            // LOG_INFO removed
             return handleRegisterRequest(message, clientId, clientIP);
         case SendVerificationCode:
-            LOG_INFO("Routing to SendVerificationCode handler");
+            // LOG_INFO removed
             return handleVerificationCodeRequest(message, clientId, clientIP);
         case CheckUsername:
-            LOG_INFO("Routing to CheckUsername handler");
+            // LOG_INFO removed
             return handleCheckUsernameRequest(message, clientId, clientIP);
         case CheckEmail:
-            LOG_INFO("Routing to CheckEmail handler");
+            // LOG_INFO removed
             return handleCheckEmailRequest(message, clientId, clientIP);
         case Heartbeat:
-            LOG_INFO("Routing to Heartbeat handler");
+            // LOG_INFO removed
             return handleHeartbeatRequest(message, clientId);
         case Chat:
-            LOG_INFO("Routing to Chat handler");
+            // LOG_INFO removed
             return handleChatMessage(message, clientId, clientIP);
         default:
             LOG_ERROR(QString("Unknown action: %1").arg(action));
@@ -118,32 +120,36 @@ QJsonObject ProtocolHandler::handleLoginRequest(const QJsonObject &request, cons
         // 生成会话令牌
         QString sessionToken = generateSessionToken(user->id());
         
-        // 保存会话令牌到Redis - 使用正确的键格式：session:{token} -> {userId}
-        QString sessionKey = QString("session:%1").arg(sessionToken);
-        _redisClient->set(sessionKey, QString::number(user->id()), rememberMe ? 24 * 7 : 24); // 7天或1天
+        // 生成设备ID
+        QString deviceId = QUuid::createUuid().toString(QUuid::WithoutBraces);
         
-        // 记录登录日志
-        logLoginAttempt(user->id(), user->username(), user->email(), true, clientIP);
-        
-        // 发送登录成功信号
-        emit userLoggedIn(user->id(), clientId, sessionToken);
-        
-        LOG_INFO(QString("User login successful: %1 from %2").arg(username).arg(clientIP));
-        
-        // 创建响应数据 - 直接放在根级别，不使用 data 包装
-        QJsonObject successResponse;
-        successResponse["request_id"] = requestId;
-        successResponse["action"] = action + "_response";
-        successResponse["success"] = true;
-        successResponse["message"] = "登录成功";
-        successResponse["timestamp"] = QDateTime::currentSecsSinceEpoch();
-        successResponse["user"] = user->toClientJson();
-        successResponse["session_token"] = sessionToken;
-        successResponse["expires_in"] = rememberMe ? 604800 : 86400; // 秒数
-        
-    
-        
-        return successResponse;
+        // 使用新的会话管理器创建会话
+        if (_sessionManager->createSession(user->id(), sessionToken, deviceId, clientId, clientIP, rememberMe)) {
+            // 记录登录日志
+            logLoginAttempt(user->id(), user->username(), user->email(), true, clientIP);
+            
+            // 发送登录成功信号
+            emit userLoggedIn(user->id(), clientId, sessionToken);
+            
+            LOG_INFO(QString("User login successful: %1 from %2").arg(username).arg(clientIP));
+            
+            // 创建响应数据
+            QJsonObject successResponse;
+            successResponse["request_id"] = requestId;
+            successResponse["action"] = action + "_response";
+            successResponse["success"] = true;
+            successResponse["message"] = "登录成功";
+            successResponse["timestamp"] = QDateTime::currentSecsSinceEpoch();
+            successResponse["user"] = user->toClientJson();
+            successResponse["session_token"] = sessionToken;
+            successResponse["device_id"] = deviceId;
+            successResponse["expires_in"] = rememberMe ? 2592000 : 604800; // 30天或7天
+            
+            return successResponse;
+        } else {
+            LOG_ERROR(QString("Failed to create session for user %1").arg(user->id()));
+            return createErrorResponse(requestId, action, "SESSION_CREATION_FAILED", "Failed to create session");
+        }
     } else {
         // 记录登录失败日志
         QString errorMessage = UserService::getAuthResultDescription(authResult.first);
@@ -330,13 +336,19 @@ QJsonObject ProtocolHandler::handleLogoutRequest(const QJsonObject &request, con
 {
     QString requestId = request["request_id"].toString();
     QString action = request["action"].toString();
+    QString sessionToken = request["session_token"].toString();
     
-    // 删除会话令牌 - 需要先获取会话令牌，然后删除对应的键
-    QString sessionToken;
-    if (_redisClient->getSessionToken(userId, sessionToken) == RedisClient::Success && !sessionToken.isEmpty()) {
-        QString sessionKey = QString("session:%1").arg(sessionToken);
-        _redisClient->del(sessionKey);
-        LOG_INFO(QString("Session token deleted for user %1: %2").arg(userId).arg(sessionKey));
+    // 使用新的会话管理器销毁会话
+    if (!sessionToken.isEmpty()) {
+        if (_sessionManager->destroySession(sessionToken)) {
+            LOG_INFO(QString("Session destroyed for user %1").arg(userId));
+        } else {
+            LOG_WARNING(QString("Failed to destroy session for user %1").arg(userId));
+        }
+    } else {
+        // 如果没有提供会话令牌，销毁用户的所有会话
+        int destroyedCount = _sessionManager->destroyUserSessions(userId);
+        LOG_INFO(QString("Destroyed %1 sessions for user %2").arg(destroyedCount).arg(userId));
     }
     
     // 发送登出信号
@@ -459,27 +471,18 @@ QJsonObject ProtocolHandler::handleChatMessage(const QJsonObject &request, const
 
     LOG_INFO(QString("Session token found: %1").arg(sessionToken.left(10) + "..."));
 
-    // 从Redis中获取用户ID
-    QString userIdKey = QString("session:%1").arg(sessionToken);
-    QString userIdStr;
-    LOG_INFO(QString("Looking up session in Redis with key: %1").arg(userIdKey));
+    // 使用新的会话管理器验证会话
+    SessionManager::SessionInfo sessionInfo = _sessionManager->validateSession(sessionToken);
     
-    RedisClient::Result result = _redisClient->get(userIdKey, userIdStr);
-    LOG_INFO(QString("Redis lookup result: %1, userIdStr: '%2'").arg(static_cast<int>(result)).arg(userIdStr));
-    
-    if (userIdStr.isEmpty()) {
-        LOG_ERROR(QString("Invalid or expired session token. Key: %1, Result: %2").arg(userIdKey).arg(static_cast<int>(result)));
+    if (!sessionInfo.isValid) {
+        LOG_ERROR(QString("Invalid or expired session token: %1").arg(sessionToken.left(10) + "..."));
         return createErrorResponse(requestId, action, "INVALID_SESSION", "Invalid or expired session token");
     }
 
-    bool ok;
-    qint64 userId = userIdStr.toLongLong(&ok);
-    if (!ok || userId <= 0) {
-        LOG_ERROR(QString("Invalid user session: %1").arg(userIdStr));
-        return createErrorResponse(requestId, action, "INVALID_SESSION", "Invalid user session");
-    }
+    LOG_INFO(QString("User ID resolved: %1, Device: %2").arg(sessionInfo.userId).arg(sessionInfo.deviceId));
 
-    LOG_INFO(QString("User ID resolved: %1").arg(userId));
+    // 更新会话活动时间（滑动窗口）
+    _sessionManager->updateSessionActivity(sessionToken);
 
     // 检查聊天处理器是否可用
     if (!_chatHandler) {
@@ -493,9 +496,8 @@ QJsonObject ProtocolHandler::handleChatMessage(const QJsonObject &request, const
         return createErrorResponse(requestId, action, "SERVICE_UNAVAILABLE", "Chat service initialization failed");
     }
 
-    LOG_INFO("Delegating to ChatProtocolHandler");
     // 委托给聊天协议处理器
-    return _chatHandler->handleChatRequest(request, clientIP, userId);
+    return _chatHandler->handleChatRequest(request, clientIP, sessionInfo.userId);
 }
 
 QJsonObject ProtocolHandler::handleCheckUsernameRequest(const QJsonObject &request, const QString &clientId, const QString &clientIP)

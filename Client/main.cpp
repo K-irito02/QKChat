@@ -112,7 +112,7 @@ int main(int argc, char *argv[])
                 if (chatNetworkClient && !chatNetworkClient->initialize()) {
                     LOG_ERROR("Failed to initialize ChatNetworkClient");
                 } else {
-                    LOG_INFO("ChatNetworkClient initialized successfully");
+                
                 }
             }
         });
@@ -144,7 +144,7 @@ int main(int argc, char *argv[])
         }
     }, Qt::QueuedConnection);
 
-    LOG_INFO(QString("Attempting to load QML file from: %1").arg(url.toString()));
+
 
     engine.load(url);
 

@@ -10,6 +10,8 @@
 #include <QCryptographicHash>
 #include <QThread>
 #include <QApplication>
+#include <QSet>
+#include <QMutex>
 
 // 静态成员初始化
 int ClientHandler::s_clientCounter = 0;
@@ -360,27 +362,52 @@ void ClientHandler::processReceivedData(const QByteArray &data)
     // Processing received data
     LOG_INFO(QString("Client: %1, Received data size: %2 bytes").arg(_clientId).arg(data.size()));
     
-    QByteArray buffer = data; // 创建可修改的副本
-    while (buffer.size() >= 4) {
+    // 将新数据添加到接收缓冲区
+    _receiveBuffer.append(data);
+    
+    // 处理缓冲区中的所有完整消息
+    while (_receiveBuffer.size() >= 4) {
         // 读取消息长度（前4字节）
-        QDataStream stream(&buffer, QIODevice::ReadOnly);
+        QDataStream stream(_receiveBuffer);
         stream.setByteOrder(QDataStream::BigEndian);
         
         quint32 messageLength;
         stream >> messageLength;
         
-        LOG_INFO(QString("Message length: %1 bytes, Buffer size: %2 bytes").arg(messageLength).arg(buffer.size()));
+        LOG_INFO(QString("Message length: %1 bytes, Buffer size: %2 bytes").arg(messageLength).arg(_receiveBuffer.size()));
+        
+        // 检查消息长度是否合理
+        const quint32 MAX_MESSAGE_SIZE = 64 * 1024; // 64KB
+        const quint32 MAX_BUFFER_SIZE = 1024 * 1024; // 1MB
+        if (messageLength > MAX_MESSAGE_SIZE) {
+            LOG_ERROR(QString("Message length too large: %1 bytes, clearing buffer").arg(messageLength));
+            _receiveBuffer.clear();
+            return;
+        }
+        
+        if (messageLength == 0) {
+            LOG_ERROR("Invalid message length: 0, removing header");
+            _receiveBuffer.remove(0, 4);
+            continue;
+        }
+        
+        // 检查缓冲区大小是否合理
+        if (_receiveBuffer.size() > MAX_BUFFER_SIZE) {
+            LOG_ERROR(QString("Buffer size too large: %1 bytes, clearing buffer").arg(_receiveBuffer.size()));
+            _receiveBuffer.clear();
+            return;
+        }
         
         // 检查是否接收到完整消息
-        if (buffer.size() < 4 + messageLength) {
+        if (_receiveBuffer.size() < 4 + messageLength) {
             LOG_INFO(QString("Incomplete message, waiting for more data. Need: %1, Have: %2")
-                    .arg(4 + messageLength).arg(buffer.size()));
+                    .arg(4 + messageLength).arg(_receiveBuffer.size()));
             break; // 等待更多数据
         }
         
         // 提取消息数据
-        QByteArray messageData = buffer.mid(4, messageLength);
-        buffer.remove(0, 4 + messageLength);
+        QByteArray messageData = _receiveBuffer.mid(4, messageLength);
+        _receiveBuffer.remove(0, 4 + messageLength);
         
         LOG_INFO(QString("Extracted message data: %1 bytes").arg(messageData.size()));
         
@@ -406,6 +433,24 @@ void ClientHandler::processReceivedData(const QByteArray &data)
         
         LOG_INFO(QString("Parsed message - Action: %1, RequestID: %2").arg(action).arg(requestId));
         
+        // 检查是否为重复消息（仅对非心跳消息进行检查）
+        if (action != "heartbeat" && !requestId.isEmpty()) {
+            static QSet<QString> processedRequests;
+            static QMutex processedRequestsMutex;
+            
+            QMutexLocker locker(&processedRequestsMutex);
+            if (processedRequests.contains(requestId)) {
+                LOG_WARNING(QString("Duplicate message detected, skipping: %1").arg(requestId));
+                continue;
+            }
+            processedRequests.insert(requestId);
+            
+            // 限制已处理请求的数量，防止内存泄漏
+            if (processedRequests.size() > 1000) {
+                processedRequests.clear();
+            }
+        }
+        
         _messagesReceived++;
         
         processMessage(message);
@@ -424,7 +469,7 @@ void ClientHandler::processMessage(const QJsonObject &message)
 
     // 处理心跳消息
     if (action == "heartbeat") {
-        LOG_INFO("Processing heartbeat message");
+        // LOG_INFO removed
         handleHeartbeat(message);
         return;
     }
@@ -432,7 +477,7 @@ void ClientHandler::processMessage(const QJsonObject &message)
     // 处理认证消息（包括可用性检查）
     if (action == "login" || action == "register" || action == "send_verification_code" || 
         action == "check_username" || action == "check_email") {
-        LOG_INFO("Processing authentication message");
+        // LOG_INFO removed
         if (_state == Connected || _state == Authenticating) {
             handleAuthRequest(message);
         } else {
@@ -450,7 +495,7 @@ void ClientHandler::processMessage(const QJsonObject &message)
     }
 
     // 处理已认证用户的消息
-    LOG_INFO("Emitting messageReceived signal for authenticated user");
+    // LOG_INFO removed
     emit messageReceived(message);
     
     // Message processing completed

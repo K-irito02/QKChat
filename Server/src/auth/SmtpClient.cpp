@@ -352,7 +352,7 @@ void SmtpClient::sendCommand(const QString &command)
 
 void SmtpClient::startTls()
 {
-    LOG_INFO("Starting TLS encryption");
+    // LOG_INFO removed
 
     sendCommand("STARTTLS");
     _expectedResponseCode = 220;

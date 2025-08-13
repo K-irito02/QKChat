@@ -25,7 +25,6 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 *.cmake
-!CMakeLists.txt
 
 # ===== 编译输出文件 =====
 *.o
@@ -42,18 +41,6 @@ Makefile
 *.ilk
 *.exp
 
-# ===== 日志文件 =====
-logs/
-*.log
-控制台.log
-
-# ===== 数据库文件 =====
-*.db
-*.sqlite
-*.sqlite3
-data/
-*.db-journal
-
 # ===== 临时文件 =====
 *.tmp
 *.temp
@@ -62,12 +49,6 @@ data/
 *~
 .DS_Store
 Thumbs.db
-
-# ===== IDE文件 =====
-.vscode/
-.idea/
-*.sublime-project
-*.sublime-workspace
 
 # ===== 证书文件 =====
 *.pem
@@ -79,7 +60,6 @@ certs/
 
 # ===== 第三方库 =====
 third-libraries/
-third_party/
 
 # ===== 操作系统文件 =====
 .DS_Store
@@ -93,9 +73,9 @@ MCP/
 # ===== 编辑器配置文件 =====
 .vscode/
 .augment/
-.cursor/
 .windsurfrules
 .codebuddy/
+.gitignore
 
 # ===== 其它文件 =====
 问题记录/

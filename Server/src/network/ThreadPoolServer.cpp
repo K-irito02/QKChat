@@ -57,8 +57,7 @@ bool ThreadPoolServer::initialize(const ServerConfig& config)
     
     _config = config;
     
-    LOG_INFO(QString("Initializing thread pool server: minThreads=%1, maxThreads=%2, maxClients=%3")
-             .arg(_config.minThreads).arg(_config.maxThreads).arg(_config.maxClients));
+    // 初始化线程池服务器
     
     // 创建线程池
     int poolCount = qMax(1, _config.maxThreads / 4); // 每个池最多4个线程
@@ -78,8 +77,7 @@ bool ThreadPoolServer::initialize(const ServerConfig& config)
     _initialized = true;
     _startTime = QDateTime::currentDateTime();
     
-    LOG_INFO(QString("Thread pool server initialized with %1 thread pools")
-             .arg(_threadPools.size()));
+    // 线程池服务器初始化完成
     
     return true;
 }
@@ -107,8 +105,7 @@ bool ThreadPoolServer::startServer(quint16 port, const QHostAddress &address, bo
     
     _running = true;
     
-    LOG_INFO(QString("Thread pool server started on %1:%2 (TLS: %3)")
-             .arg(address.toString()).arg(port).arg(_useTLS ? "Yes" : "No"));
+    // 线程池服务器已启动
     
     return true;
 }
@@ -119,7 +116,7 @@ void ThreadPoolServer::stopServer()
         return;
     }
     
-    LOG_INFO("Stopping thread pool server...");
+    // 停止线程池服务器
     
     _running = false;
     
@@ -145,17 +142,12 @@ void ThreadPoolServer::stopServer()
     
     close();
     
-    LOG_INFO("Thread pool server stopped");
+    // 线程池服务器已停止
 }
 
 void ThreadPoolServer::setProtocolHandler(ProtocolHandler *protocolHandler)
 {
-    // Setting protocol handler
-    LOG_INFO(QString("Setting protocol handler: %1").arg(protocolHandler ? "valid" : "null"));
-    LOG_INFO(QString("Old protocol handler: %1").arg(_protocolHandler ? "valid" : "null"));
     _protocolHandler = protocolHandler;
-    LOG_INFO(QString("Protocol handler set: %1").arg(_protocolHandler ? "valid" : "null"));
-    LOG_INFO(QString("Protocol handler pointer: %1").arg((quintptr)_protocolHandler));
 }
 
 QJsonObject ThreadPoolServer::getServerStatistics() const
@@ -210,7 +202,7 @@ void ThreadPoolServer::broadcastMessage(const QJsonObject &message)
         }
     }
 
-    LOG_INFO(QString("Broadcasted message to %1 authenticated clients").arg(_clients.size()));
+    // 消息已广播给所有认证客户端
 }
 
 bool ThreadPoolServer::sendMessageToUser(qint64 userId, const QJsonObject &message)
@@ -222,7 +214,7 @@ bool ThreadPoolServer::sendMessageToUser(qint64 userId, const QJsonObject &messa
     if (client && client->isAuthenticated()) {
         bool success = client->sendMessage(message);
         if (success) {
-            LOG_INFO(QString("Sent message to user %1").arg(userId));
+            // 消息已发送给指定用户
         } else {
             LOG_WARNING(QString("Failed to send message to user %1").arg(userId));
         }
@@ -269,8 +261,7 @@ void ThreadPoolServer::onClientConnected(ClientHandler* client)
     QMutexLocker locker(&_clientsMutex);
     _clients[client->clientId()] = client;
     
-    LOG_INFO(QString("Client connected: %1 (Total: %2)")
-             .arg(client->clientId()).arg(_clients.size()));
+    // 客户端已连接
     
     emit clientConnected(client);
 }
@@ -305,8 +296,7 @@ void ThreadPoolServer::onClientDisconnected(ClientHandler* client)
     
     _activeConnections.fetchAndSubOrdered(1);
     
-    LOG_INFO(QString("Client disconnected: %1 (Total: %2)")
-             .arg(clientId).arg(_activeConnections.loadAcquire()));
+    // 客户端已断开连接
     
     emit clientDisconnected(client);
     
@@ -343,7 +333,7 @@ void ThreadPoolServer::onClientAuthenticated(qint64 userId, ClientHandler* clien
     // 添加到用户客户端映射
     _userClients[userId] = client;
     
-    LOG_INFO(QString("Client authenticated: %1 -> User %2").arg(client->clientId()).arg(userId));
+    // 客户端认证成功
     emit userLoggedIn(userId, client);
 }
 
@@ -356,13 +346,12 @@ void ThreadPoolServer::onClientMessageReceived(ClientHandler* client, const QJso
         return;
     }
     
-    LOG_INFO(QString("Client pointer: %1").arg((quintptr)client));
+    // 处理客户端消息
     
     // 线程安全检查：确保client对象仍然有效
     QString clientId;
     try {
         clientId = client->clientId();
-        LOG_INFO(QString("Client ID retrieved: %1").arg(clientId));
     } catch (...) {
         LOG_ERROR("Exception while getting client ID");
         return;
@@ -373,18 +362,13 @@ void ThreadPoolServer::onClientMessageReceived(ClientHandler* client, const QJso
         return;
     }
     
-    LOG_INFO(QString("Client ID: %1, Thread: %2").arg(clientId).arg((quintptr)QThread::currentThread()));
-    
     QString action = message["action"].toString();
-    LOG_INFO(QString("Received message from client %1: %2").arg(clientId).arg(action));
     
     // 处理聊天消息
     if (action.startsWith("friend_") || action.startsWith("message_") || 
         action.startsWith("status_") || action == "heartbeat") {
         
-        LOG_INFO(QString("Routing chat message to ProtocolHandler: %1").arg(action));
-        LOG_INFO(QString("ProtocolHandler instance: %1").arg(_protocolHandler ? "valid" : "null"));
-        LOG_INFO(QString("ProtocolHandler pointer: %1").arg((quintptr)_protocolHandler));
+        // 路由聊天消息到协议处理器
         
         // 使用已存在的ProtocolHandler实例
         if (!_protocolHandler) {
@@ -392,13 +376,12 @@ void ThreadPoolServer::onClientMessageReceived(ClientHandler* client, const QJso
             return;
         }
         
-        LOG_INFO("About to call _protocolHandler->handleMessage");
+        // 调用协议处理器
         
         // 获取客户端IP地址
         QString clientIP;
         try {
             clientIP = client->peerAddress().toString();
-            LOG_INFO(QString("Client IP: %1").arg(clientIP));
         } catch (...) {
             LOG_ERROR("Exception while getting client IP");
             return;
@@ -407,12 +390,12 @@ void ThreadPoolServer::onClientMessageReceived(ClientHandler* client, const QJso
         // 处理消息并获取响应
         QJsonObject response = _protocolHandler->handleMessage(message, clientId, clientIP);
         
-        LOG_INFO("Successfully called _protocolHandler->handleMessage");
+        // 协议处理器调用成功
         
         // 发送响应给客户端
         client->sendMessage(response);
         
-        LOG_INFO(QString("Chat message processed and response sent: %1").arg(action));
+        // 聊天消息处理完成
     } else {
         LOG_WARNING(QString("Unknown message type: %1").arg(action));
     }
@@ -540,39 +523,39 @@ void ThreadPoolServer::ClientTask::run()
         LOG_WARNING("QApplication instance not available, using current thread");
     }
     
-    LOG_INFO(QString("Main thread: %1, Current thread: %2").arg((quintptr)mainThread).arg((quintptr)QThread::currentThread()));
+    // 检查线程环境
     
     // 在当前线程中创建客户端处理器，确保套接字描述符有效
-    LOG_INFO("Creating ClientHandler in current thread");
+    // 创建客户端处理器
     ClientHandler* client = new ClientHandler(_socketDescriptor, _protocolHandler, _useTLS);
     
-    LOG_INFO(QString("ClientHandler created: %1, Thread: %2").arg(client->clientId()).arg((quintptr)client->thread()));
+    // 客户端处理器创建完成
     
     // 将客户端移动到主线程，确保线程安全
     if (mainThread && mainThread != client->thread()) {
-        LOG_INFO("Moving ClientHandler to main thread");
+        // 移动到主线程
         client->moveToThread(mainThread);
         client->setParent(_server);
     }
     
     // 在主线程中连接信号
     QMetaObject::invokeMethod(_server, [this, client]() {
-        LOG_INFO(QString("Connecting signals for client: %1").arg(client->clientId()));
+        // 连接信号
         
         // 连接信号到服务器
         QObject::connect(client, &ClientHandler::connected, _server, 
                         [client]() {
-            LOG_INFO(QString("Client connected: %1").arg(client->clientId()));
+            // 客户端连接信号
         }, Qt::QueuedConnection);
         
         QObject::connect(client, &ClientHandler::disconnected, _server, 
                         [client]() {
-            LOG_INFO(QString("Client disconnected: %1").arg(client->clientId()));
+            // 客户端断开信号
         }, Qt::QueuedConnection);
         
         QObject::connect(client, &ClientHandler::authenticated, _server, 
                         [client](qint64 userId) {
-            LOG_INFO(QString("Client authenticated: %1, UserID: %2").arg(client->clientId()).arg(userId));
+            // 客户端认证信号
         }, Qt::QueuedConnection);
         
         QObject::connect(client, &ClientHandler::clientError, _server, 
@@ -585,8 +568,6 @@ void ThreadPoolServer::ClientTask::run()
         
         QObject::connect(client, &ClientHandler::messageReceived, _server, 
                         [client](const QJsonObject &message) {
-            LOG_INFO(QString("ClientTask: Lambda function entered for client %1").arg(client ? client->clientId() : "null"));
-            
             // 检查对象有效性
             if (!client) {
                 LOG_ERROR("Client pointer is null in messageReceived lambda");
@@ -600,19 +581,14 @@ void ThreadPoolServer::ClientTask::run()
                 return;
             }
             
-            LOG_INFO(QString("ClientTask: Server's protocol handler: %1").arg(server->_protocolHandler ? "valid" : "null"));
-            LOG_INFO(QString("ClientTask: About to call server->onClientMessageReceived"));
-            
             try {
                 server->onClientMessageReceived(client, message);
-                LOG_INFO(QString("ClientTask: Successfully called server->onClientMessageReceived"));
             } catch (...) {
                 LOG_ERROR("Exception occurred in server->onClientMessageReceived");
             }
         }, Qt::QueuedConnection);
         
-        // 启动客户端处理
-        LOG_INFO(QString("Starting client processing: %1").arg(client->clientId()));
+        // 启动客户端处理器
         QMetaObject::invokeMethod(client, "startProcessing", Qt::QueuedConnection);
         
     }, Qt::QueuedConnection);

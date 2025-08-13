@@ -61,7 +61,6 @@
   "security": {
     "rate_limit_enabled": true,
     "max_requests_per_minute": 60,
-    "session_timeout": 86400,
     "password_min_length": 6,
     "password_require_special": false,
     "max_login_attempts": 5,
@@ -69,7 +68,16 @@
     "ip_whitelist": [],
     "ip_blacklist": [],
     "csrf_protection": true,
-    "xss_protection": true
+    "xss_protection": true,
+    "session": {
+      "default_timeout": 604800,
+      "remember_me_timeout": 2592000,
+      "activity_update_interval": 1800,
+      "max_sessions_per_user": 5,
+      "cleanup_interval": 3600,
+      "sliding_window": true,
+      "multi_device_support": true
+    }
   },
   "features": {
     "registration_enabled": true,

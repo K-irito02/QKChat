@@ -40,15 +40,15 @@ bool MessageService::initialize()
         return true;
     }
     
-    // 测试数据库连接
-    QSqlDatabase db = getDatabase();
-    if (!db.isValid() || !db.isOpen()) {
+    // 测试数据库连接 - 使用RAII包装器
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
         LOG_ERROR("Failed to initialize MessageService: database not available");
         return false;
     }
     
     _initialized = true;
-    LOG_INFO("MessageService initialized successfully");
+    // MessageService初始化成功
     return true;
 }
 
@@ -66,43 +66,48 @@ QString MessageService::sendMessage(qint64 senderId, qint64 receiverId, MessageT
     // 生成消息ID
     QString messageId = generateMessageId();
     
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection for sending message");
+        return QString();
+    }
     
     // 开始事务
-    if (!db.transaction()) {
+    if (!dbConn.beginTransaction()) {
         LOG_ERROR("Failed to start transaction for sending message");
         return QString();
     }
     
     try {
         // 插入消息记录
-        query.prepare("INSERT INTO messages (message_id, sender_id, receiver_id, message_type, content, "
-                     "file_url, file_size, file_hash, delivery_status, created_at) "
-                     "VALUES (:message_id, :sender_id, :receiver_id, :type, :content, "
-                     ":file_url, :file_size, :file_hash, 'sent', NOW())");
+        int result = dbConn.executeUpdate(
+            "INSERT INTO messages (message_id, sender_id, receiver_id, message_type, content, "
+            "file_url, file_size, file_hash, delivery_status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sent', NOW())",
+            {messageId, senderId, receiverId, messageTypeToString(type), content,
+             fileUrl.isEmpty() ? QVariant() : fileUrl,
+             fileSize > 0 ? fileSize : QVariant(),
+             fileHash.isEmpty() ? QVariant() : fileHash}
+        );
         
-        query.bindValue(":message_id", messageId);
-        query.bindValue(":sender_id", senderId);
-        query.bindValue(":receiver_id", receiverId);
-        query.bindValue(":type", messageTypeToString(type));
-        query.bindValue(":content", content);
-        query.bindValue(":file_url", fileUrl.isEmpty() ? QVariant() : fileUrl);
-        query.bindValue(":file_size", fileSize > 0 ? fileSize : QVariant());
-        query.bindValue(":file_hash", fileHash.isEmpty() ? QVariant() : fileHash);
-        
-        if (!query.exec()) {
-            throw std::runtime_error(query.lastError().text().toStdString());
+        if (result == -1) {
+            throw std::runtime_error("Failed to insert message record");
         }
         
-        qint64 dbMessageId = query.lastInsertId().toLongLong();
+        // 获取插入的消息ID
+        QSqlQuery idQuery = dbConn.executeQuery("SELECT LAST_INSERT_ID()");
+        qint64 dbMessageId = 0;
+        if (!idQuery.lastError().isValid() && idQuery.next()) {
+            dbMessageId = idQuery.value(0).toLongLong();
+        }
         
         // 提交事务
-        if (!db.commit()) {
+        if (!dbConn.commitTransaction()) {
             throw std::runtime_error("Failed to commit send message transaction");
         }
         
-        LOG_INFO(QString("Message sent: %1 from user %2 to user %3").arg(messageId).arg(senderId).arg(receiverId));
+        // 消息已发送
         
         // 构建消息JSON对象
         MessageInfo messageInfo;
@@ -137,7 +142,7 @@ QString MessageService::sendMessage(qint64 senderId, qint64 receiverId, MessageT
         return messageId;
         
     } catch (const std::exception& e) {
-        db.rollback();
+        dbConn.rollbackTransaction();
         LOG_ERROR(QString("Failed to send message: %1").arg(e.what()));
         return QString();
     }
@@ -148,27 +153,30 @@ QJsonArray MessageService::getChatHistory(qint64 userId1, qint64 userId2, int li
     QMutexLocker locker(&_mutex);
     
     QJsonArray messages;
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
+    
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection for chat history");
+        return messages;
+    }
     
     // 查询聊天历史
-    query.prepare("SELECT m.*, "
-                 "s.username as sender_username, s.display_name as sender_name, s.avatar_url as sender_avatar, "
-                 "r.username as receiver_username, r.display_name as receiver_name, r.avatar_url as receiver_avatar "
-                 "FROM messages m "
-                 "JOIN users s ON m.sender_id = s.id "
-                 "JOIN users r ON m.receiver_id = r.id "
-                 "WHERE ((m.sender_id = :user1 AND m.receiver_id = :user2) OR "
-                 "       (m.sender_id = :user2 AND m.receiver_id = :user1)) "
-                 "ORDER BY m.created_at DESC "
-                 "LIMIT :limit OFFSET :offset");
+    QSqlQuery query = dbConn.executeQuery(
+        "SELECT m.*, "
+        "s.username as sender_username, s.display_name as sender_name, s.avatar_url as sender_avatar, "
+        "r.username as receiver_username, r.display_name as receiver_name, r.avatar_url as receiver_avatar "
+        "FROM messages m "
+        "JOIN users s ON m.sender_id = s.id "
+        "JOIN users r ON m.receiver_id = r.id "
+        "WHERE ((m.sender_id = ? AND m.receiver_id = ?) OR "
+        "       (m.sender_id = ? AND m.receiver_id = ?)) "
+        "ORDER BY m.created_at DESC "
+        "LIMIT ? OFFSET ?",
+        {userId1, userId2, userId2, userId1, limit, offset}
+    );
     
-    query.bindValue(":user1", userId1);
-    query.bindValue(":user2", userId2);
-    query.bindValue(":limit", limit);
-    query.bindValue(":offset", offset);
-    
-    if (!query.exec()) {
+    if (query.lastError().isValid()) {
         LOG_ERROR(QString("Failed to get chat history: %1").arg(query.lastError().text()));
         return messages;
     }
@@ -204,7 +212,7 @@ QJsonArray MessageService::getChatHistory(qint64 userId1, qint64 userId2, int li
         messages.append(message);
     }
     
-    LOG_INFO(QString("Retrieved %1 messages for chat between users %2 and %3").arg(messages.size()).arg(userId1).arg(userId2));
+    // 获取聊天消息成功
     return messages;
 }
 
@@ -213,28 +221,34 @@ QJsonArray MessageService::getChatSessions(qint64 userId)
     QMutexLocker locker(&_mutex);
     
     QJsonArray sessions;
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
+    
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection for chat sessions");
+        return sessions;
+    }
     
     // 查询用户的聊天会话
-    query.prepare("SELECT DISTINCT "
-                 "CASE WHEN m.sender_id = :user_id THEN m.receiver_id ELSE m.sender_id END as chat_user_id, "
-                 "CASE WHEN m.sender_id = :user_id THEN r.username ELSE s.username END as chat_username, "
-                 "CASE WHEN m.sender_id = :user_id THEN r.display_name ELSE s.display_name END as chat_display_name, "
-                 "CASE WHEN m.sender_id = :user_id THEN r.avatar_url ELSE s.avatar_url END as chat_avatar_url, "
-                 "MAX(m.created_at) as last_message_time, "
-                 "COUNT(CASE WHEN m.receiver_id = :user_id AND mrs.read_at IS NULL THEN 1 END) as unread_count "
-                 "FROM messages m "
-                 "JOIN users s ON m.sender_id = s.id "
-                 "JOIN users r ON m.receiver_id = r.id "
-                 "LEFT JOIN message_read_status mrs ON m.id = mrs.message_id AND mrs.user_id = :user_id "
-                 "WHERE m.sender_id = :user_id OR m.receiver_id = :user_id "
-                 "GROUP BY chat_user_id, chat_username, chat_display_name, chat_avatar_url "
-                 "ORDER BY last_message_time DESC");
+    QSqlQuery query = dbConn.executeQuery(
+        "SELECT DISTINCT "
+        "CASE WHEN m.sender_id = ? THEN m.receiver_id ELSE m.sender_id END as chat_user_id, "
+        "CASE WHEN m.sender_id = ? THEN r.username ELSE s.username END as chat_username, "
+        "CASE WHEN m.sender_id = ? THEN r.display_name ELSE s.display_name END as chat_display_name, "
+        "CASE WHEN m.sender_id = ? THEN r.avatar_url ELSE s.avatar_url END as chat_avatar_url, "
+        "MAX(m.created_at) as last_message_time, "
+        "COUNT(CASE WHEN m.receiver_id = ? AND mrs.read_at IS NULL THEN 1 END) as unread_count "
+        "FROM messages m "
+        "JOIN users s ON m.sender_id = s.id "
+        "JOIN users r ON m.receiver_id = r.id "
+        "LEFT JOIN message_read_status mrs ON m.id = mrs.message_id AND mrs.user_id = ? "
+        "WHERE m.sender_id = ? OR m.receiver_id = ? "
+        "GROUP BY chat_user_id, chat_username, chat_display_name, chat_avatar_url "
+        "ORDER BY last_message_time DESC",
+        {userId, userId, userId, userId, userId, userId, userId, userId}
+    );
     
-    query.bindValue(":user_id", userId);
-    
-    if (!query.exec()) {
+    if (query.lastError().isValid()) {
         LOG_ERROR(QString("Failed to get chat sessions: %1").arg(query.lastError().text()));
         return sessions;
     }
@@ -251,7 +265,7 @@ QJsonArray MessageService::getChatSessions(qint64 userId)
         sessions.append(session);
     }
     
-    LOG_INFO(QString("Retrieved %1 chat sessions for user %2").arg(sessions.size()).arg(userId));
+    // 获取聊天会话成功
     return sessions;
 }
 
@@ -259,14 +273,20 @@ bool MessageService::markMessageAsRead(qint64 userId, const QString& messageId)
 {
     QMutexLocker locker(&_mutex);
 
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection for marking message as read");
+        return false;
+    }
 
     // 获取消息信息
-    query.prepare("SELECT id, sender_id, receiver_id FROM messages WHERE message_id = :message_id");
-    query.bindValue(":message_id", messageId);
+    QSqlQuery query = dbConn.executeQuery(
+        "SELECT id, sender_id, receiver_id FROM messages WHERE message_id = ?",
+        {messageId}
+    );
 
-    if (!query.exec() || !query.next()) {
+    if (query.lastError().isValid() || !query.next()) {
         LOG_WARNING(QString("Message not found for read marking: %1").arg(messageId));
         return false;
     }
@@ -282,37 +302,40 @@ bool MessageService::markMessageAsRead(qint64 userId, const QString& messageId)
     }
 
     // 开始事务
-    if (!db.transaction()) {
+    if (!dbConn.beginTransaction()) {
         LOG_ERROR("Failed to start transaction for marking message as read");
         return false;
     }
 
     try {
         // 插入或更新已读状态
-        query.prepare("INSERT INTO message_read_status (message_id, user_id, read_at) "
-                     "VALUES (:message_id, :user_id, NOW()) "
-                     "ON DUPLICATE KEY UPDATE read_at = NOW()");
-        query.bindValue(":message_id", dbMessageId);
-        query.bindValue(":user_id", userId);
+        int result1 = dbConn.executeUpdate(
+            "INSERT INTO message_read_status (message_id, user_id, read_at) "
+            "VALUES (?, ?, NOW()) "
+            "ON DUPLICATE KEY UPDATE read_at = NOW()",
+            {dbMessageId, userId}
+        );
 
-        if (!query.exec()) {
-            throw std::runtime_error(query.lastError().text().toStdString());
+        if (result1 == -1) {
+            throw std::runtime_error("Failed to update message read status");
         }
 
         // 更新消息投递状态为已读
-        query.prepare("UPDATE messages SET delivery_status = 'read', updated_at = NOW() WHERE message_id = :message_id");
-        query.bindValue(":message_id", messageId);
+        int result2 = dbConn.executeUpdate(
+            "UPDATE messages SET delivery_status = 'read', updated_at = NOW() WHERE message_id = ?",
+            {messageId}
+        );
 
-        if (!query.exec()) {
-            throw std::runtime_error(query.lastError().text().toStdString());
+        if (result2 == -1) {
+            throw std::runtime_error("Failed to update message delivery status");
         }
 
         // 提交事务
-        if (!db.commit()) {
+        if (!dbConn.commitTransaction()) {
             throw std::runtime_error("Failed to commit mark message as read transaction");
         }
 
-        LOG_INFO(QString("Message %1 marked as read by user %2").arg(messageId).arg(userId));
+        // 消息已标记为已读
 
         // 发送信号
         emit messageRead(userId, messageId);
@@ -330,7 +353,7 @@ bool MessageService::markMessageAsRead(qint64 userId, const QString& messageId)
         return true;
 
     } catch (const std::exception& e) {
-        db.rollback();
+        dbConn.rollbackTransaction();
         LOG_ERROR(QString("Failed to mark message as read: %1").arg(e.what()));
         return false;
     }
@@ -346,7 +369,7 @@ int MessageService::markMessagesAsRead(qint64 userId, const QStringList& message
         }
     }
 
-    LOG_INFO(QString("Marked %1 out of %2 messages as read for user %3").arg(successCount).arg(messageIds.size()).arg(userId));
+    // 批量标记消息为已读
     return successCount;
 }
 
@@ -354,30 +377,33 @@ int MessageService::getUnreadMessageCount(qint64 userId, qint64 fromUserId)
 {
     QMutexLocker locker(&_mutex);
 
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection");
+        return 0;
+    }
 
     QString sql = "SELECT COUNT(*) FROM messages m "
-                  "LEFT JOIN message_read_status mrs ON m.id = mrs.message_id AND mrs.user_id = :user_id "
-                  "WHERE m.receiver_id = :user_id AND mrs.read_at IS NULL";
+                  "LEFT JOIN message_read_status mrs ON m.id = mrs.message_id AND mrs.user_id = ? "
+                  "WHERE m.receiver_id = ? AND mrs.read_at IS NULL";
 
+    QVariantList params = {userId, userId};
+    
     if (fromUserId != -1) {
-        sql += " AND m.sender_id = :from_user_id";
+        sql += " AND m.sender_id = ?";
+        params.append(fromUserId);
     }
 
-    query.prepare(sql);
-    query.bindValue(":user_id", userId);
-    if (fromUserId != -1) {
-        query.bindValue(":from_user_id", fromUserId);
-    }
-
-    if (!query.exec() || !query.next()) {
+    QSqlQuery query = dbConn.executeQuery(sql, params);
+    
+    if (query.lastError().isValid() || !query.next()) {
         LOG_ERROR(QString("Failed to get unread message count: %1").arg(query.lastError().text()));
         return 0;
     }
 
     int count = query.value(0).toInt();
-    LOG_INFO(QString("User %1 has %2 unread messages").arg(userId).arg(count));
+    // 获取未读消息数量
     return count;
 }
 
@@ -386,21 +412,26 @@ QJsonArray MessageService::getOfflineMessages(qint64 userId)
     QMutexLocker locker(&_mutex);
 
     QJsonArray messages;
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection");
+        return messages;
+    }
 
     // 查询离线消息队列
-    query.prepare("SELECT m.*, omq.priority, omq.created_at as queued_at, "
-                 "s.username as sender_username, s.display_name as sender_name, s.avatar_url as sender_avatar "
-                 "FROM offline_message_queue omq "
-                 "JOIN messages m ON omq.message_id = m.id "
-                 "JOIN users s ON m.sender_id = s.id "
-                 "WHERE omq.user_id = :user_id AND omq.delivered_at IS NULL "
-                 "ORDER BY omq.priority DESC, omq.created_at ASC");
+    QSqlQuery query = dbConn.executeQuery(
+        "SELECT m.*, omq.priority, omq.created_at as queued_at, "
+        "s.username as sender_username, s.display_name as sender_name, s.avatar_url as sender_avatar "
+        "FROM offline_message_queue omq "
+        "JOIN messages m ON omq.message_id = m.id "
+        "JOIN users s ON m.sender_id = s.id "
+        "WHERE omq.user_id = ? AND omq.delivered_at IS NULL "
+        "ORDER BY omq.priority DESC, omq.created_at ASC",
+        {userId}
+    );
 
-    query.bindValue(":user_id", userId);
-
-    if (!query.exec()) {
+    if (query.lastError().isValid()) {
         LOG_ERROR(QString("Failed to get offline messages: %1").arg(query.lastError().text()));
         return messages;
     }
@@ -438,24 +469,24 @@ QJsonArray MessageService::getOfflineMessages(qint64 userId)
 
     // 标记离线消息为已投递
     if (!processedMessageIds.isEmpty()) {
-        QSqlQuery updateQuery(db);
         QString placeholders = QString("?,").repeated(processedMessageIds.size());
         placeholders.chop(1); // 移除最后一个逗号
 
-        updateQuery.prepare(QString("UPDATE offline_message_queue SET delivered_at = NOW() "
-                                   "WHERE user_id = :user_id AND message_id IN (%1)").arg(placeholders));
-        updateQuery.bindValue(":user_id", userId);
+        QVariantList updateParams = {userId};
+        updateParams.append(QVariant::fromValue(processedMessageIds));
 
-        for (int i = 0; i < processedMessageIds.size(); ++i) {
-            updateQuery.bindValue(i + 1, processedMessageIds[i]);
-        }
+        int result = dbConn.executeUpdate(
+            QString("UPDATE offline_message_queue SET delivered_at = NOW() "
+                   "WHERE user_id = ? AND message_id IN (%1)").arg(placeholders),
+            updateParams
+        );
 
-        if (!updateQuery.exec()) {
-            LOG_ERROR(QString("Failed to mark offline messages as delivered: %1").arg(updateQuery.lastError().text()));
+        if (result == -1) {
+            LOG_ERROR("Failed to mark offline messages as delivered");
         }
     }
 
-    LOG_INFO(QString("Retrieved %1 offline messages for user %2").arg(messages.size()).arg(userId));
+    // 获取离线消息成功
     return messages;
 }
 
@@ -463,14 +494,20 @@ bool MessageService::deleteMessage(qint64 userId, const QString& messageId)
 {
     QMutexLocker locker(&_mutex);
 
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection");
+        return false;
+    }
 
     // 检查消息是否存在且属于该用户
-    query.prepare("SELECT sender_id FROM messages WHERE message_id = :message_id");
-    query.bindValue(":message_id", messageId);
+    QSqlQuery query = dbConn.executeQuery(
+        "SELECT sender_id FROM messages WHERE message_id = ?",
+        {messageId}
+    );
 
-    if (!query.exec() || !query.next()) {
+    if (query.lastError().isValid() || !query.next()) {
         LOG_WARNING(QString("Message not found for deletion: %1").arg(messageId));
         return false;
     }
@@ -484,15 +521,17 @@ bool MessageService::deleteMessage(qint64 userId, const QString& messageId)
     }
 
     // 删除消息（软删除，更新状态）
-    query.prepare("UPDATE messages SET delivery_status = 'failed', updated_at = NOW() WHERE message_id = :message_id");
-    query.bindValue(":message_id", messageId);
+    int result = dbConn.executeUpdate(
+        "UPDATE messages SET delivery_status = 'failed', updated_at = NOW() WHERE message_id = ?",
+        {messageId}
+    );
 
-    if (!query.exec()) {
-        LOG_ERROR(QString("Failed to delete message %1: %2").arg(messageId).arg(query.lastError().text()));
+    if (result == -1) {
+        LOG_ERROR(QString("Failed to delete message %1").arg(messageId));
         return false;
     }
 
-    LOG_INFO(QString("Message %1 deleted by user %2").arg(messageId).arg(userId));
+    // 消息已删除
     return true;
 }
 
@@ -500,14 +539,20 @@ bool MessageService::recallMessage(qint64 userId, const QString& messageId)
 {
     QMutexLocker locker(&_mutex);
 
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection");
+        return false;
+    }
 
     // 检查消息是否存在且属于该用户
-    query.prepare("SELECT sender_id, receiver_id, created_at FROM messages WHERE message_id = :message_id");
-    query.bindValue(":message_id", messageId);
+    QSqlQuery query = dbConn.executeQuery(
+        "SELECT sender_id, receiver_id, created_at FROM messages WHERE message_id = ?",
+        {messageId}
+    );
 
-    if (!query.exec() || !query.next()) {
+    if (query.lastError().isValid() || !query.next()) {
         LOG_WARNING(QString("Message not found for recall: %1").arg(messageId));
         return false;
     }
@@ -529,11 +574,13 @@ bool MessageService::recallMessage(qint64 userId, const QString& messageId)
     }
 
     // 更新消息内容为撤回提示
-    query.prepare("UPDATE messages SET content = '[消息已撤回]', message_type = 'system', updated_at = NOW() WHERE message_id = :message_id");
-    query.bindValue(":message_id", messageId);
+    int result = dbConn.executeUpdate(
+        "UPDATE messages SET content = '[消息已撤回]', message_type = 'system', updated_at = NOW() WHERE message_id = ?",
+        {messageId}
+    );
 
-    if (!query.exec()) {
-        LOG_ERROR(QString("Failed to recall message %1: %2").arg(messageId).arg(query.lastError().text()));
+    if (result == -1) {
+        LOG_ERROR(QString("Failed to recall message %1").arg(messageId));
         return false;
     }
 
@@ -546,7 +593,7 @@ bool MessageService::recallMessage(qint64 userId, const QString& messageId)
 
     pushMessageToUser(receiverId, recallNotification);
 
-    LOG_INFO(QString("Message %1 recalled by user %2").arg(messageId).arg(userId));
+    // 消息已撤回
     return true;
 }
 
@@ -555,8 +602,12 @@ QJsonArray MessageService::searchMessages(qint64 userId, const QString& keyword,
     QMutexLocker locker(&_mutex);
 
     QJsonArray messages;
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection");
+        return messages;
+    }
 
     QString sql = "SELECT m.*, "
                   "s.username as sender_username, s.display_name as sender_name, s.avatar_url as sender_avatar, "
@@ -564,27 +615,27 @@ QJsonArray MessageService::searchMessages(qint64 userId, const QString& keyword,
                   "FROM messages m "
                   "JOIN users s ON m.sender_id = s.id "
                   "JOIN users r ON m.receiver_id = r.id "
-                  "WHERE (m.sender_id = :user_id OR m.receiver_id = :user_id) "
-                  "AND m.content LIKE :keyword "
+                  "WHERE (m.sender_id = ? OR m.receiver_id = ?) "
+                  "AND m.content LIKE ? "
                   "AND m.message_type = 'text'";
 
-    if (chatUserId != -1) {
-        sql += " AND ((m.sender_id = :chat_user_id AND m.receiver_id = :user_id) OR "
-               "(m.sender_id = :user_id AND m.receiver_id = :chat_user_id))";
-    }
-
-    sql += " ORDER BY m.created_at DESC LIMIT :limit";
-
-    query.prepare(sql);
-    query.bindValue(":user_id", userId);
-    query.bindValue(":keyword", QString("%%1%").arg(keyword));
-    query.bindValue(":limit", limit);
+    QVariantList params = {userId, userId, QString("%%1%").arg(keyword)};
 
     if (chatUserId != -1) {
-        query.bindValue(":chat_user_id", chatUserId);
+        sql += " AND ((m.sender_id = ? AND m.receiver_id = ?) OR "
+               "(m.sender_id = ? AND m.receiver_id = ?))";
+        params.append(chatUserId);
+        params.append(userId);
+        params.append(userId);
+        params.append(chatUserId);
     }
 
-    if (!query.exec()) {
+    sql += " ORDER BY m.created_at DESC LIMIT ?";
+    params.append(limit);
+
+    QSqlQuery query = dbConn.executeQuery(sql, params);
+
+    if (query.lastError().isValid()) {
         LOG_ERROR(QString("Failed to search messages: %1").arg(query.lastError().text()));
         return messages;
     }
@@ -615,7 +666,7 @@ QJsonArray MessageService::searchMessages(qint64 userId, const QString& keyword,
         messages.append(message);
     }
 
-    LOG_INFO(QString("Found %1 messages for keyword '%2' for user %3").arg(messages.size()).arg(keyword).arg(userId));
+    // 搜索消息完成
     return messages;
 }
 
@@ -623,20 +674,25 @@ bool MessageService::updateMessageStatus(const QString& messageId, DeliveryStatu
 {
     QMutexLocker locker(&_mutex);
 
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
-
-    query.prepare("UPDATE messages SET delivery_status = :status, updated_at = NOW() WHERE message_id = :message_id");
-    query.bindValue(":status", deliveryStatusToString(status));
-    query.bindValue(":message_id", messageId);
-
-    if (!query.exec()) {
-        LOG_ERROR(QString("Failed to update message status: %1").arg(query.lastError().text()));
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection");
         return false;
     }
 
-    if (query.numRowsAffected() > 0) {
-        LOG_INFO(QString("Message %1 status updated to %2").arg(messageId).arg(deliveryStatusToString(status)));
+    int result = dbConn.executeUpdate(
+        "UPDATE messages SET delivery_status = ?, updated_at = NOW() WHERE message_id = ?",
+        {deliveryStatusToString(status), messageId}
+    );
+
+    if (result == -1) {
+        LOG_ERROR(QString("Failed to update message status: %1").arg(messageId));
+        return false;
+    }
+
+    if (result > 0) {
+        // 消息状态已更新
         return true;
     }
 
@@ -663,21 +719,25 @@ bool MessageService::pushMessageToUser(qint64 userId, const QJsonObject& message
 
 bool MessageService::addToOfflineQueue(qint64 userId, qint64 messageId, int priority)
 {
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
-
-    query.prepare("INSERT INTO offline_message_queue (user_id, message_id, message_type, priority) "
-                 "VALUES (:user_id, :message_id, 'private', :priority)");
-    query.bindValue(":user_id", userId);
-    query.bindValue(":message_id", messageId);
-    query.bindValue(":priority", priority);
-
-    if (!query.exec()) {
-        LOG_ERROR(QString("Failed to add message to offline queue: %1").arg(query.lastError().text()));
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection");
         return false;
     }
 
-    LOG_INFO(QString("Message %1 added to offline queue for user %2").arg(messageId).arg(userId));
+    int result = dbConn.executeUpdate(
+        "INSERT INTO offline_message_queue (user_id, message_id, message_type, priority) "
+        "VALUES (?, ?, 'private', ?)",
+        {userId, messageId, priority}
+    );
+
+    if (result == -1) {
+        LOG_ERROR("Failed to add message to offline queue");
+        return false;
+    }
+
+    // 消息已添加到离线队列
     return true;
 }
 
@@ -696,7 +756,7 @@ int MessageService::processOfflineQueue(qint64 userId)
         }
     }
 
-    LOG_INFO(QString("Processed %1 offline messages for user %2").arg(processedCount).arg(userId));
+    // 离线消息处理完成
     return processedCount;
 }
 
@@ -746,10 +806,7 @@ MessageService::DeliveryStatus MessageService::stringToDeliveryStatus(const QStr
     return Sent;
 }
 
-QSqlDatabase MessageService::getDatabase()
-{
-    return DatabaseManager::instance()->getConnection();
-}
+// 移除getDatabase方法，改用RAII包装器
 
 QString MessageService::generateMessageId()
 {
@@ -760,13 +817,19 @@ MessageService::MessageInfo MessageService::getMessageInfo(const QString& messag
 {
     MessageInfo info;
 
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection");
+        return info;
+    }
 
-    query.prepare("SELECT * FROM messages WHERE message_id = :message_id");
-    query.bindValue(":message_id", messageId);
+    QSqlQuery query = dbConn.executeQuery(
+        "SELECT * FROM messages WHERE message_id = ?",
+        {messageId}
+    );
 
-    if (query.exec() && query.next()) {
+    if (!query.lastError().isValid() && query.next()) {
         info.id = query.value("id").toLongLong();
         info.messageId = query.value("message_id").toString();
         info.senderId = query.value("sender_id").toLongLong();

@@ -2,14 +2,33 @@
 #include "config/ConfigManager.h"
 #include "security/CertificateManager.h"
 #include "security/OpenSSLHelper.h"
+#include "database/DatabaseManager.h"
+#include "database/RedisClient.h"
+#include "auth/EmailService.h"
 #include "network/ThreadPoolServer.h"
 #include "network/AsyncMessageQueue.h"
-#include <QStandardPaths>
+#include "network/ProtocolHandler.h"
+#include "network/ClientHandler.h"
+#include "utils/Logger.h"
+#include "utils/Crypto.h"
+#include "auth/UserService.h"
+#include "chat/FriendService.h"
+#include "chat/MessageService.h"
+#include "chat/OnlineStatusService.h"
+#include "cache/CacheManager.h"
+#include "rate_limit/RateLimitManager.h"
+#include "database/DatabaseConnectionPool.h"
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QDateTime>
+#include <QTimer>
+#include <QMutexLocker>
+#include <QFileInfo>
 #include <QDir>
+#include <QStandardPaths>
 #include <QCoreApplication>
 #include <QHostAddress>
-#include <QFileInfo>
-#include <QTimer>
 
 // 静态成员初始化
 ServerManager* ServerManager::s_instance = nullptr;
@@ -56,7 +75,7 @@ bool ServerManager::initialize()
         Logger::initialize(relativeLogDir, "Server");
     }
 
-    LOG_INFO("Initializing QKChat Server with high-performance architecture...");
+    // LOG_INFO removed
 
     try {
         // 初始化OpenSSL库
@@ -67,7 +86,7 @@ bool ServerManager::initialize()
         }
 
         // 初始化配置管理器
-        LOG_INFO("Creating ConfigManager instance...");
+        // LOG_INFO removed
         ConfigManager* configManager = nullptr;
         try {
             configManager = ConfigManager::instance();
@@ -117,7 +136,7 @@ bool ServerManager::initialize()
             }
         }
 
-        LOG_INFO("Attempting to load configuration...");
+        // LOG_INFO removed
         if (!configManager->loadConfig(configPath)) {
             LOG_WARNING("Failed to load configuration file, using defaults");
         } else {
@@ -125,7 +144,7 @@ bool ServerManager::initialize()
         }
 
         // 配置日志系统
-        LOG_INFO("Configuring logger settings...");
+        // LOG_INFO removed
         Logger::setLogLevel(static_cast<Logger::LogLevel>(
             configManager->getValue("logging.level", static_cast<int>(Logger::INFO)).toInt()));
         Logger::setConsoleOutput(configManager->getValue("logging.console_output", true).toBool());
@@ -164,7 +183,7 @@ bool ServerManager::initialize()
     //     setServerState(Error);
     //     return false;
     // }
-    LOG_INFO("AsyncMessageQueue disabled to prevent duplicate message sending");
+    // LOG_INFO removed
 
     if (!initializeThreadPoolServer()) {
         LOG_ERROR("Failed to initialize thread pool server");
@@ -217,12 +236,12 @@ bool ServerManager::startServer(quint16 port)
     setServerState(Running);
     
 
-    LOG_INFO("Server features enabled:");
-    LOG_INFO("  - Database connection pool with automatic scaling");
-    LOG_INFO("  - Multi-threaded client handling");
-    LOG_INFO("  - Async message queue with priority support");
-    LOG_INFO("  - Redis caching for session management");
-    LOG_INFO("  - Load balancing and rate limiting");
+    // LOG_INFO removed
+    // LOG_INFO removed
+    // LOG_INFO removed
+    // LOG_INFO removed
+    // LOG_INFO removed
+    // LOG_INFO removed
     
     return true;
 }
@@ -233,7 +252,7 @@ void ServerManager::stopServer()
         return;
     }
 
-    LOG_INFO("Stopping QKChat High-Performance Server...");
+    // LOG_INFO removed
     setServerState(Stopping);
 
     // 停止线程池服务器
@@ -247,6 +266,7 @@ void ServerManager::stopServer()
     }
 
     // 关闭数据库连接池
+    DatabaseConnectionPool::instance()->shutdown();
     if (_databaseManager) {
         _databaseManager->close();
     }
@@ -260,7 +280,7 @@ void ServerManager::stopServer()
     OpenSSLHelper::cleanupOpenSSL();
 
     setServerState(Stopped);
-    LOG_INFO("QKChat High-Performance Server stopped");
+    // LOG_INFO removed
 }
 
 QJsonObject ServerManager::getServerStatistics() const
@@ -303,6 +323,159 @@ QJsonObject ServerManager::getServerStatistics() const
     return stats;
 }
 
+QJsonObject ServerManager::getHighConcurrencyStatus()
+{
+    QJsonObject status;
+    
+    // 缓存状态
+    status["cache"] = getCacheStatistics();
+    
+    // 限流状态
+    status["rate_limit"] = getRateLimitStatistics();
+    
+    // 连接池状态
+    status["connection_pool"] = getConnectionPoolStatistics();
+    
+    // 热点数据状态
+    status["hot_data"] = getHotDataStatistics();
+    
+    // 整体性能指标
+    QJsonObject performance;
+    performance["uptime"] = _startTime.secsTo(QDateTime::currentDateTime());
+    performance["total_requests"] = _totalRequests;
+    performance["active_connections"] = _activeConnections;
+    performance["online_users"] = getOnlineUserCount();
+    status["performance"] = performance;
+    
+    return status;
+}
+
+QJsonObject ServerManager::getCacheStatistics()
+{
+    QJsonObject stats;
+    
+    // L1缓存统计
+    QJsonObject l1Stats = CacheManager::instance()->getCacheStats();
+    stats["l1_cache"] = l1Stats;
+    
+    // L2缓存统计
+    QJsonObject l2Stats = CacheManager::instance()->getL2CacheStats();
+    stats["l2_cache"] = l2Stats;
+    
+    // 热点数据统计
+    QJsonArray hotSearchData = CacheManager::instance()->getHotDataList("user_search", 10);
+    stats["hot_search_keywords"] = hotSearchData;
+    
+    return stats;
+}
+
+QJsonObject ServerManager::getRateLimitStatistics()
+{
+    QJsonObject stats = RateLimitManager::instance()->getRateLimitStats();
+    
+    // 添加限流配置信息
+    QJsonObject configs;
+    configs["friend_search"] = QJsonObject{
+        {"max_requests", 20},
+        {"window_seconds", 60},
+        {"tokens_per_second", 0.333}
+    };
+    configs["login"] = QJsonObject{
+        {"max_requests", 10},
+        {"window_seconds", 60},
+        {"tokens_per_second", 0.167}
+    };
+    
+    stats["configurations"] = configs;
+    
+    return stats;
+}
+
+QJsonObject ServerManager::getConnectionPoolStatistics()
+{
+    QJsonObject stats = DatabaseConnectionPool::instance()->getStatistics();
+    
+    // 添加负载预测信息
+    QJsonObject prediction = DatabaseConnectionPool::instance()->getLoadPrediction();
+    stats["load_prediction"] = prediction;
+    
+    // 添加性能趋势分析
+    QJsonObject trend = DatabaseConnectionPool::instance()->analyzePerformanceTrend();
+    stats["performance_trend"] = trend;
+    
+    return stats;
+}
+
+QJsonObject ServerManager::getHotDataStatistics()
+{
+    QJsonObject stats;
+    
+    // 搜索热点数据
+    QJsonArray searchHotData = CacheManager::instance()->getHotDataList("user_search", 20);
+    stats["search_hot_data"] = searchHotData;
+    
+    // 热点数据阈值统计
+    QJsonObject thresholds;
+    thresholds["search_threshold"] = 5;
+    thresholds["message_threshold"] = 10;
+    thresholds["file_threshold"] = 3;
+    stats["thresholds"] = thresholds;
+    
+    return stats;
+}
+
+bool ServerManager::clearCache(const QString& cacheType)
+{
+    if (cacheType == "all" || cacheType == "l1") {
+        CacheManager::instance()->clearCache();
+        // LOG_INFO removed
+    }
+    
+    if (cacheType == "all" || cacheType == "l2") {
+        CacheManager::instance()->cleanupL2Cache();
+        // LOG_INFO removed
+    }
+    
+    return true;
+}
+
+bool ServerManager::resetRateLimit(const QString& identifier)
+{
+    if (identifier == "all") {
+        // 重置所有限流状态
+        RateLimitManager::instance()->resetRateLimit("", "");
+        // LOG_INFO removed
+    } else {
+        // 重置特定标识符的限流状态
+        RateLimitManager::instance()->resetRateLimit(identifier, "friend_search");
+        RateLimitManager::instance()->resetRateLimit(identifier, "login");
+        LOG_INFO(QString("Rate limit reset for identifier: %1").arg(identifier));
+    }
+    
+    return true;
+}
+
+bool ServerManager::resizeConnectionPool(int minConnections, int maxConnections)
+{
+    if (minConnections < 1 || maxConnections < minConnections || maxConnections > 100) {
+        LOG_ERROR("Invalid connection pool size parameters");
+        return false;
+    }
+    
+    DatabaseConnectionPool::instance()->resizePool(minConnections, maxConnections);
+    LOG_INFO(QString("Connection pool resized to %1-%2").arg(minConnections).arg(maxConnections));
+    
+    return true;
+}
+
+bool ServerManager::setAutoResizeEnabled(bool enabled)
+{
+    DatabaseConnectionPool::instance()->setAutoResizeEnabled(enabled);
+    LOG_INFO(QString("Auto-resize %1").arg(enabled ? "enabled" : "disabled"));
+    
+    return true;
+}
+
 int ServerManager::getClientCount() const
 {
     return _clientCount;
@@ -318,7 +491,8 @@ void ServerManager::onThreadPoolClientConnected(ClientHandler* client)
     _clientCount++;
     _totalConnections++;
     
-    LOG_INFO(QString("Client connected: %1 (Total: %2)").arg(client->clientId()).arg(_clientCount));
+    QString clientId = client ? client->clientId() : "unknown";
+    LOG_INFO(QString("Client connected: %1 (Total: %2)").arg(clientId).arg(_clientCount));
     emit clientConnected(_clientCount);
 }
 
@@ -326,13 +500,15 @@ void ServerManager::onThreadPoolClientDisconnected(ClientHandler* client)
 {
     _clientCount--;
     
-    LOG_INFO(QString("Client disconnected: %1 (Total: %2)").arg(client->clientId()).arg(_clientCount));
+    QString clientId = client ? client->clientId() : "unknown";
+    LOG_INFO(QString("Client disconnected: %1 (Total: %2)").arg(clientId).arg(_clientCount));
     emit clientDisconnected(_clientCount);
 }
 
 void ServerManager::onThreadPoolUserLoggedIn(qint64 userId, ClientHandler* client)
 {
-    LOG_INFO(QString("User logged in: ID=%1, Client=%2").arg(userId).arg(client->clientId()));
+    QString clientId = client ? client->clientId() : "unknown";
+    LOG_INFO(QString("User logged in: ID=%1, Client=%2").arg(userId).arg(clientId));
     emit userLoggedIn(userId, QString("User_%1").arg(userId));
 }
 
@@ -358,7 +534,7 @@ void ServerManager::onProtocolUserRegistered(qint64 userId, const QString &usern
 void ServerManager::onDatabaseConnectionChanged(bool connected)
 {
     if (connected) {
-        LOG_INFO("Database connection pool established");
+        // LOG_INFO removed
     } else {
         LOG_WARNING("Database connection pool lost");
         emit serverError("Database connection pool lost");
@@ -368,7 +544,7 @@ void ServerManager::onDatabaseConnectionChanged(bool connected)
 void ServerManager::onRedisConnectionChanged(bool connected)
 {
     if (connected) {
-        LOG_INFO("Redis connection established");
+        // LOG_INFO removed
     } else {
         LOG_WARNING("Redis connection lost");
     }
@@ -545,7 +721,7 @@ void ServerManager::initializeCertificatesAsync()
     try {
         CertificateManager* certManager = CertificateManager::instance();
 
-        LOG_INFO("Initializing TLS certificates using auto-generated self-signed certificate");
+        // LOG_INFO removed
 
         if (!certManager->generateSelfSignedCertificate("localhost", "QKChat", "CN", 365)) {
             LOG_ERROR("Failed to generate self-signed certificate");

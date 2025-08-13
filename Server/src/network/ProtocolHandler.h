@@ -12,6 +12,7 @@
 #include "../auth/UserService.h"
 #include "../auth/EmailService.h"
 #include "../auth/VerificationCodeManager.h"
+#include "../auth/SessionManager.h"
 #include "../database/RedisClient.h"
 
 // 前向声明
@@ -224,6 +225,7 @@ private:
     EmailService* _emailService;
     RedisClient* _redisClient;
     ChatProtocolHandler* _chatHandler;  // 聊天协议处理器
+    SessionManager* _sessionManager;    // 会话管理器
 
     // 请求去重机制
     QSet<QString> _processedRequests;  // 已处理的请求ID集合

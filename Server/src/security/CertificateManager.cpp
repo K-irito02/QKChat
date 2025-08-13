@@ -380,7 +380,7 @@ void CertificateManager::setAutoCheckEnabled(bool enabled, int checkInterval)
     
     } else {
         _autoCheckTimer->stop();
-        LOG_INFO("Certificate auto-check disabled");
+        // LOG_INFO removed
     }
 }
 
@@ -390,7 +390,7 @@ void CertificateManager::setFileWatchEnabled(bool enabled)
 
     if (!enabled) {
         _fileWatcher->removePaths(_fileWatcher->files());
-        LOG_INFO("Certificate file watch disabled");
+        // LOG_INFO removed
     } else {
         // 重新添加监视的文件
         if (!_certificatePath.isEmpty()) {
@@ -399,7 +399,7 @@ void CertificateManager::setFileWatchEnabled(bool enabled)
         if (!_privateKeyPath.isEmpty()) {
             _fileWatcher->addPath(_privateKeyPath);
         }
-        LOG_INFO("Certificate file watch enabled");
+        // LOG_INFO removed
     }
 }
 
@@ -463,7 +463,7 @@ void CertificateManager::onCertificateFileChanged(const QString &path)
     // 自动重新加载证书
     if (path == _certificatePath || path == _privateKeyPath) {
         if (!_certificatePath.isEmpty() && !_privateKeyPath.isEmpty()) {
-            LOG_INFO("Reloading certificate due to file change");
+            // LOG_INFO removed
             loadCertificate(_certificatePath, _privateKeyPath, _keyPassword);
         }
     }

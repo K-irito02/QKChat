@@ -177,7 +177,6 @@ QtObject {
 
             return true
         } catch (e) {
-            console.error("Failed to import settings:", e)
             return false
         }
     }

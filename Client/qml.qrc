@@ -7,6 +7,8 @@
         <file>qml/pages/MainPage.qml</file>
         <file>qml/windows/LoginWindow.qml</file>
         <file>qml/windows/ChatWindow.qml</file>
+        <file>qml/windows/UserDetailWindow.qml</file>
+        <file>qml/windows/AddFriendWindow.qml</file>
         <file>qml/components/ThemeManager.qml</file>
         <file>qml/components/CustomTextField.qml</file>
         <file>qml/components/CustomButton.qml</file>
@@ -19,6 +21,11 @@
         <file>qml/components/FriendListItem.qml</file>
         <file>qml/components/ChatView.qml</file>
         <file>qml/components/MessageBubble.qml</file>
+        <file>qml/components/UserSearchDialog.qml</file>
+        <file>qml/components/UserSearchResultItem.qml</file>
+        <file>qml/components/GroupedListView.qml</file>
+        <file>qml/components/GroupHeader.qml</file>
+        <file>qml/components/GroupManagementDialog.qml</file>
         <file>qml/components/qmldir</file>
     </qresource>
 </RCC>

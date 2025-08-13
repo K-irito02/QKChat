@@ -16,7 +16,7 @@ SessionManager::SessionManager(QObject *parent)
     , _isLoggedIn(false)
     , _currentUser(nullptr)
     , _rememberMe(false)
-    , _sessionTimeout(3600) // 默认1小时
+    , _sessionTimeout(604800) // 默认7天，与服务器端一致
 {
     // 创建定时器
     _sessionTimer = new QTimer(this);
@@ -25,9 +25,14 @@ SessionManager::SessionManager(QObject *parent)
     _expiringWarningTimer = new QTimer(this);
     _expiringWarningTimer->setSingleShot(true);
     
+    _activityTimer = new QTimer(this);
+    _activityTimer->setSingleShot(false);
+    _activityTimer->setInterval(30 * 60 * 1000); // 30分钟活动更新间隔
+    
     // 连接信号（使用队列连接确保线程安全）
     connect(_sessionTimer, &QTimer::timeout, this, &SessionManager::onSessionTimeout, Qt::QueuedConnection);
     connect(_expiringWarningTimer, &QTimer::timeout, this, &SessionManager::onSessionExpiringWarning, Qt::QueuedConnection);
+    connect(_activityTimer, &QTimer::timeout, this, &SessionManager::onActivityUpdate, Qt::QueuedConnection);
     
     // 创建设置对象
     _settings = new QSettings("QKChat", "Client", this);
@@ -105,6 +110,11 @@ bool SessionManager::createSession(User* user, const QString &sessionToken, bool
     // 启动会话定时器
     startSessionTimer();
     
+    // 启动活动监控定时器
+    if (_activityTimer) {
+        _activityTimer->start();
+    }
+    
     // 保存登录信息（如果启用记住登录）
     if (_rememberMe) {
         // 注意：这里应该保存用户名，密码哈希应该在登录时保存
@@ -131,10 +141,14 @@ void SessionManager::destroySession()
         return;
     }
     
-    LOG_INFO("Destroying session");
+
     
     // 停止定时器
     stopSessionTimer();
+    
+    if (_activityTimer) {
+        _activityTimer->stop();
+    }
     
     // 清理用户数据
     if (_currentUser) {
@@ -179,7 +193,7 @@ void SessionManager::refreshSessionToken(const QString &newToken)
     // 重启会话定时器
     startSessionTimer();
     
-    LOG_INFO("Session token refreshed");
+
     emit sessionTokenChanged();
 }
 
@@ -194,7 +208,7 @@ void SessionManager::updateUserInfo(User* user)
     // 更新保存的主题设置
     _settings->setValue("user/theme", _currentUser->theme());
     
-    LOG_INFO("User information updated");
+
     emit currentUserChanged();
 }
 
@@ -226,7 +240,7 @@ void SessionManager::saveLoginInfo(const QString &username, const QString &passw
         _settings->setValue("login/username", username);
         _settings->setValue("login/password_hash", passwordHash);
         _settings->setValue("login/remember_me", true);
-        LOG_INFO("Login information saved");
+    
     }
 }
 
@@ -235,14 +249,14 @@ void SessionManager::clearSavedLoginInfo()
     _settings->remove("login/username");
     _settings->remove("login/password_hash");
     _settings->setValue("login/remember_me", false);
-    LOG_INFO("Saved login information cleared");
+    // LOG_INFO removed
 }
 
 bool SessionManager::tryAutoLogin()
 {
     auto loginInfo = getSavedLoginInfo();
     if (!loginInfo.first.isEmpty() && !loginInfo.second.isEmpty()) {
-        LOG_INFO("Auto login requested for user: " + loginInfo.first);
+        // LOG_INFO removed
         
         // 使用QTimer::singleShot延迟发送信号，避免在构造过程中的循环调用
         QTimer::singleShot(100, this, [this, loginInfo]() {
@@ -297,6 +311,14 @@ void SessionManager::stopSessionTimer()
 {
     _sessionTimer->stop();
     _expiringWarningTimer->stop();
+}
+
+void SessionManager::onActivityUpdate()
+{
+    if (_isLoggedIn && !_sessionToken.isEmpty()) {
+        // LOG_DEBUG removed
+        emit sessionActivityUpdateRequested();
+    }
 }
 
 void SessionManager::loadSettings()

@@ -80,13 +80,13 @@ ApplicationWindow {
                     chatWindow.logout()
                 })
             } catch (error) {
-                console.error("MainPage初始化出错:", error)
+                // MainPage initialization error
             }
         }
 
         onStatusChanged: {
             if (status === Loader.Error) {
-                console.error("MainPage加载失败:", sourceComponent.errorString())
+                // MainPage loading failed
             }
         }
     }

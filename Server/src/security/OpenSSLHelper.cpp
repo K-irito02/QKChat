@@ -52,7 +52,7 @@ void OpenSSLHelper::cleanupOpenSSL()
     ERR_free_strings();
     
     s_initialized = false;
-    LOG_INFO("OpenSSL library cleaned up");
+    // LOG_INFO removed
 }
 
 QSslKey OpenSSLHelper::generateRSAKeyPair(int keySize)
@@ -505,7 +505,7 @@ QSslCertificate OpenSSLHelper::signCertificateRequest(const QByteArray &csr,
         return QSslCertificate();
     }
 
-    LOG_INFO("Signing certificate request");
+    // LOG_INFO removed
 
     // 将Qt对象转换为OpenSSL对象
     EVP_PKEY *caPkey = qSslKeyToEvpKey(caPrivateKey);

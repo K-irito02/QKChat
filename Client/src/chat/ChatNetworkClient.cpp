@@ -60,7 +60,7 @@ bool ChatNetworkClient::initialize()
     _heartbeatTimer->start();
     
     _initialized = true;
-    LOG_INFO("ChatNetworkClient initialized successfully");
+    // LOG_INFO removed
     return true;
 }
 
@@ -132,26 +132,16 @@ void ChatNetworkClient::unblockUser(qint64 userId)
 
 void ChatNetworkClient::searchUsers(const QString& keyword, int limit)
 {
-    // Searching users
-    LOG_INFO(QString("Keyword: '%1'").arg(keyword));
-    LOG_INFO(QString("Limit: %1").arg(limit));
-    LOG_INFO(QString("NetworkClient available: %1").arg(_networkClient ? "YES" : "NO"));
-    
     if (!_networkClient) {
         LOG_ERROR("NetworkClient is null, cannot send search request");
         return;
     }
     
-    LOG_INFO(QString("NetworkClient connected: %1").arg(_networkClient->isConnected() ? "YES" : "NO"));
-    LOG_INFO(QString("NetworkClient authenticated: %1").arg(_networkClient->isAuthenticated() ? "YES" : "NO"));
-    
     QJsonObject data;
     data["keyword"] = keyword;
     data["limit"] = limit;
     
-    LOG_INFO("Preparing to send friend_search request");
     sendRequest("friend_search", data);
-    // Search request sent
 }
 
 void ChatNetworkClient::updateFriendNote(qint64 friendId, const QString& note)
@@ -313,25 +303,16 @@ void ChatNetworkClient::onNetworkResponse(const QJsonObject& response)
     QString action = response["action"].toString();
     QString requestId = response["request_id"].toString();
     
-    // Processing network response
-    LOG_INFO(QString("Received response - Action: %1, RequestID: %2").arg(action).arg(requestId));
-    LOG_INFO(QString("Response keys: %1").arg(response.keys().join(", ")));
-    
     // 检查是否为聊天相关的响应
     if (action.startsWith("friend_") || action.startsWith("message_") || 
         action.startsWith("status_") || action == "heartbeat_response" ||
         action == "send_message_response" || action == "get_chat_history_response") {
         
-        LOG_INFO("Response identified as chat-related");
-        
         if (action.startsWith("friend_")) {
-            LOG_INFO("Routing to handleFriendResponse");
             handleFriendResponse(response);
         } else if (action.startsWith("status_") || action == "heartbeat_response") {
-            LOG_INFO("Routing to handleStatusResponse");
             handleStatusResponse(response);
         } else if (action.startsWith("message_") || action == "send_message_response" || action == "get_chat_history_response") {
-            LOG_INFO("Routing to handleMessageResponse");
             handleMessageResponse(response);
         }
     } else {
@@ -340,11 +321,8 @@ void ChatNetworkClient::onNetworkResponse(const QJsonObject& response)
     
     // 检查是否为实时通知
     if (response.contains("notification_type")) {
-        LOG_INFO("Routing to handleNotification");
         handleNotification(response);
     }
-    
-    // Response processed
 }
 
 void ChatNetworkClient::onHeartbeatTimer()
@@ -358,10 +336,6 @@ void ChatNetworkClient::onHeartbeatTimer()
 
 void ChatNetworkClient::sendRequest(const QString& action, const QJsonObject& data)
 {
-    // Sending request
-    LOG_INFO(QString("Action: %1").arg(action));
-    LOG_INFO(QString("Data keys: %1").arg(data.keys().join(", ")));
-    
     if (!_networkClient) {
         LOG_ERROR("NetworkClient not available for chat request");
         return;
@@ -377,12 +351,9 @@ void ChatNetworkClient::sendRequest(const QString& action, const QJsonObject& da
     request["request_id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
     request["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
 
-    LOG_INFO(QString("Request ID: %1").arg(request["request_id"].toString()));
-
     // 添加会话令牌
     if (_networkClient->isAuthenticated()) {
         request["session_token"] = _networkClient->sessionToken();
-        LOG_INFO("Session token added to request");
     } else {
         LOG_WARNING("User not authenticated, no session token added");
     }
@@ -392,15 +363,11 @@ void ChatNetworkClient::sendRequest(const QString& action, const QJsonObject& da
         request[it.key()] = it.value();
     }
 
-    LOG_INFO("Preparing to send chat request via sendChatRequest");
     // 使用专门的聊天请求发送方法
     QString requestId = _networkClient->sendChatRequest(request);
     if (requestId.isEmpty()) {
         LOG_ERROR("Failed to send chat request - sendChatRequest returned empty requestId");
-    } else {
-        LOG_INFO(QString("Chat request sent successfully, requestId: %1").arg(requestId));
     }
-    // Request sent
 }
 
 void ChatNetworkClient::handleFriendResponse(const QJsonObject& response)
@@ -439,26 +406,9 @@ void ChatNetworkClient::handleFriendResponse(const QJsonObject& response)
             emit userUnblocked(userId, success);
         }
     } else if (action == "friend_search" || action == "friend_search_response") {
-        // Processing search response
-        LOG_INFO(QString("Action: %1").arg(action));
-        LOG_INFO(QString("Success: %1").arg(success));
-        
         if (success) {
             QJsonArray users = response["data"]["users"].toArray();
-            LOG_INFO(QString("Found %1 users in search results").arg(users.size()));
-            
-            // 详细记录每个用户的信息
-            for (int i = 0; i < users.size(); ++i) {
-                QJsonObject user = users[i].toObject();
-                LOG_INFO(QString("User %1: ID=%2, Username=%3, DisplayName=%4")
-                        .arg(i + 1)
-                        .arg(user["id"].toVariant().toLongLong())
-                        .arg(user["username"].toString())
-                        .arg(user["display_name"].toString()));
-            }
-            
             emit usersSearchResult(users);
-            LOG_INFO("usersSearchResult signal emitted");
         } else {
             QString errorMessage = response["error_message"].toString();
             QString errorCode = response["error_code"].toString();
@@ -467,7 +417,6 @@ void ChatNetworkClient::handleFriendResponse(const QJsonObject& response)
             // 发射搜索失败信号
             emit searchFailed(errorCode, errorMessage);
         }
-        // Search response processed
     } else if (action == "friend_note_update_response") {
         if (success) {
             qint64 friendId = response["data"]["friend_id"].toVariant().toLongLong();
@@ -509,7 +458,6 @@ void ChatNetworkClient::handleStatusResponse(const QJsonObject& response)
         }
     } else if (action == "heartbeat_response") {
         // 心跳响应，通常不需要特殊处理
-        LOG_INFO("Heartbeat response received");
     }
 }
 

@@ -191,6 +191,13 @@ public:
      * @return 操作结果
      */
     Result deleteSessionToken(qint64 userId);
+    
+    /**
+     * @brief 获取匹配模式的键列表
+     * @param pattern 匹配模式，如 "session:*"
+     * @return 键列表
+     */
+    QStringList keys(const QString &pattern);
 
 signals:
     /**

@@ -1,6 +1,7 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
+import QtQuick.Window 2.15
 
 /**
  * @brief 添加好友窗口
@@ -15,8 +16,6 @@ Window {
     property var themeManager
     property var networkClient
     property var messageDialog
-    property var userDetailDialog
-    property var addFriendConfirmDialog
     
     // 搜索状态
     property bool isSearching: false
@@ -30,9 +29,12 @@ Window {
     // 信号
     signal userSelected(var userInfo)
     signal friendRequestSent(var userInfo)
+    signal viewUserDetail(var userInfo)
+    signal addFriendRequest(var userInfo)
     
     title: qsTr("添加好友")
-    modality: Qt.ApplicationModal
+    modality: Qt.NonModal
+    flags: Qt.Window | Qt.WindowTitleHint | Qt.WindowSystemMenuHint | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint
     width: 600
     height: 700
     minimumWidth: 500
@@ -254,17 +256,11 @@ Window {
                                 themeManager: root.themeManager
                                 
                                 onViewDetailsClicked: {
-                                    if (root.userDetailDialog) {
-                                        root.userDetailDialog.userInfo = userInfo
-                                        root.userDetailDialog.open()
-                                    }
+                                    root.viewUserDetail(userInfo)
                                 }
 
                                 onAddFriendClicked: {
-                                    if (root.addFriendConfirmDialog) {
-                                        root.addFriendConfirmDialog.targetUser = userInfo
-                                        root.addFriendConfirmDialog.open()
-                                    }
+                                    root.addFriendRequest(userInfo)
                                 }
                             }
                         }
@@ -520,7 +516,6 @@ Window {
                     networkClient.searchUsers(keyword, 20)
                     // Search request sent
                 } catch (error) {
-                    console.error("Error calling searchUsers:", error)
                     // 如果方法调用失败，重置搜索状态
                     isSearching = false
                     if (messageDialog) {
@@ -528,14 +523,12 @@ Window {
                     }
                 }
             } else {
-                console.error("searchUsers method does not exist!")
                 isSearching = false
                 if (messageDialog) {
                     messageDialog.showError("搜索失败", "搜索方法不存在")
                 }
             }
         } else {
-            console.error("networkClient is null or undefined")
             isSearching = false
             if (messageDialog) {
                 messageDialog.showError("搜索失败", "网络客户端未初始化")
@@ -669,7 +662,7 @@ Window {
             // 确保搜索状态正确重置
             // Resetting search state
             resetSearchState()
-                          // Window initialization completed
+            // Window initialization completed
         }
     }
 }

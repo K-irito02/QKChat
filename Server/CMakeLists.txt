@@ -87,6 +87,16 @@ set(PROJECT_SOURCES
         src/auth/UserIdGenerator.cpp
         src/auth/UserRegistrationService.h
         src/auth/UserRegistrationService.cpp
+        src/auth/SessionManager.h
+        src/auth/SessionManager.cpp
+
+        # 缓存模块
+        src/cache/CacheManager.h
+        src/cache/CacheManager.cpp
+
+        # 限流模块
+        src/rate_limit/RateLimitManager.h
+        src/rate_limit/RateLimitManager.cpp
 
         # 网络模块
         src/network/TcpServer.h
@@ -124,6 +134,8 @@ set(PROJECT_SOURCES
         src/utils/Validator.h
         src/utils/Validator.cpp
         src/utils/ThreadSafeSingleton.h
+        src/utils/DatabaseErrorHandler.h
+        src/utils/DatabaseErrorHandler.cpp
 
         # 服务器管理器
         src/ServerManager.h

@@ -359,7 +359,6 @@ ApplicationWindow {
     // 错误处理
     function handleCriticalError(title, message) {
         messageDialog.showError(title, message)
-        console.error("Critical error:", title, message)
     }
 
     // 显示通知

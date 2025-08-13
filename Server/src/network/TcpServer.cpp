@@ -46,8 +46,7 @@ bool TcpServer::startServer(quint16 port, const QHostAddress &address, bool useT
     _startTime = QDateTime::currentDateTime();
     _heartbeatTimer->start();
     
-    LOG_INFO(QString("TCP Server started on %1:%2 (TLS: %3)")
-             .arg(address.toString()).arg(port).arg(_useTLS ? "Yes" : "No"));
+    // TCP服务器启动成功
     
     return true;
 }
@@ -58,7 +57,7 @@ void TcpServer::stopServer()
         return;
     }
     
-    LOG_INFO("Stopping TCP Server...");
+    // 停止TCP服务器
     
     _heartbeatTimer->stop();
     
@@ -74,7 +73,7 @@ void TcpServer::stopServer()
     
     close();
     
-    LOG_INFO("TCP Server stopped");
+    // TCP服务器已停止
 }
 
 int TcpServer::clientCount() const
@@ -242,7 +241,7 @@ void TcpServer::incomingConnection(qintptr socketDescriptor)
     
     // 连接信号
     connect(client, &ClientHandler::connected, this, [this, client]() {
-        LOG_INFO(QString("Client connected: %1").arg(client->clientId()));
+        // 客户端连接成功
         emit clientConnected(client);
     });
     
@@ -289,8 +288,7 @@ void TcpServer::onClientDisconnected()
         emit userLoggedOut(userId);
     }
     
-    LOG_INFO(QString("Client disconnected: %1 (Total: %2)")
-             .arg(clientId).arg(_clients.size()));
+    // 客户端断开连接
     
     emit clientDisconnected(client);
     
@@ -328,7 +326,7 @@ void TcpServer::onClientAuthenticated(qint64 userId)
     // 添加到用户客户端映射
     _userClients[userId] = client;
     
-    LOG_INFO(QString("Client authenticated: %1 -> User %2").arg(client->clientId()).arg(userId));
+    // 客户端认证成功
     emit userLoggedIn(userId, client);
 }
 

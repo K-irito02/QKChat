@@ -60,12 +60,12 @@ NetworkClient::NetworkClient(QObject *parent)
         connect(_socket, QOverload<QAbstractSocket::SocketError>::of(&QTcpSocket::errorOccurred),
                 this, &NetworkClient::onSocketError, Qt::QueuedConnection);
         // connect(_socket, &QSslSocket::sslErrors, this, &NetworkClient::onSslErrors, Qt::QueuedConnection);
-        LOG_INFO("Socket signals connected");
+        // Socket signals connected
         
         connect(_connectionTimer, &QTimer::timeout, this, &NetworkClient::onConnectionTimeout, Qt::QueuedConnection);
         connect(_heartbeatTimer, &QTimer::timeout, this, &NetworkClient::onHeartbeatTimeout, Qt::QueuedConnection);
         connect(_reconnectTimer, &QTimer::timeout, this, &NetworkClient::onReconnectTimer, Qt::QueuedConnection);
-        LOG_INFO("Timer signals connected");
+        // Timer signals connected
         
         // 暂时禁用复杂的网络质量监控和错误处理
         _qualityMonitor = nullptr;
@@ -131,7 +131,7 @@ void NetworkClient::disconnectFromServer()
         return;
     }
     
-    LOG_INFO("Disconnecting from server");
+    // Disconnecting from server
     
     _connectionTimer->stop();
     _heartbeatTimer->stop();
@@ -162,7 +162,7 @@ QString NetworkClient::sendLoginRequest(const QString &username, const QString &
     if (!requestId.isEmpty()) {
         QMutexLocker locker(&_dataMutex);
         _pendingRequests[requestId] = "login";
-        LOG_INFO(QString("Sent login request for user: %1").arg(username));
+        // Sent login request for user
     }
     
     return requestId;
@@ -184,7 +184,7 @@ QString NetworkClient::sendRegisterRequest(const QString &username, const QStrin
     if (!requestId.isEmpty()) {
         QMutexLocker locker(&_dataMutex);
         _pendingRequests[requestId] = "register";
-        LOG_INFO(QString("Sent register request for user: %1, email: %2").arg(username).arg(email));
+        // Sent register request for user
     }
     
     return requestId;
@@ -204,7 +204,7 @@ QString NetworkClient::sendVerificationCodeRequest(const QString &email)
     if (!requestId.isEmpty()) {
         QMutexLocker locker(&_dataMutex);
         _pendingRequests[requestId] = "verification_code";
-        LOG_INFO(QString("Sent verification code request for: %1").arg(email));
+        // Sent verification code request
     }
     
     return requestId;
@@ -224,7 +224,7 @@ QString NetworkClient::sendCheckUsernameRequest(const QString &username)
     if (!requestId.isEmpty()) {
         QMutexLocker locker(&_dataMutex);
         _pendingRequests[requestId] = "check_username";
-        LOG_INFO(QString("Sent check username request for: %1").arg(username));
+        // Sent check username request
     }
     
     return requestId;
@@ -244,7 +244,7 @@ QString NetworkClient::sendCheckEmailRequest(const QString &email)
     if (!requestId.isEmpty()) {
         QMutexLocker locker(&_dataMutex);
         _pendingRequests[requestId] = "check_email";
-        LOG_INFO(QString("Sent check email request for: %1").arg(email));
+        // Sent check email request
     }
     
     return requestId;
@@ -352,7 +352,7 @@ void NetworkClient::onDisconnected()
 {
     _connectionTimer->stop();
     
-    LOG_INFO("Disconnected from server");
+    // LOG_INFO removed
     
     // 只有在非重连状态下才停止心跳定时器
     if (_connectionState != Reconnecting) {
@@ -361,7 +361,7 @@ void NetworkClient::onDisconnected()
     
     // 如果不是主动断开，尝试重连
     if (_autoReconnect && _connectionState != Disconnected) {
-        LOG_INFO("Connection lost, attempting reconnection");
+        // LOG_INFO removed
         startReconnection();
     }
     
@@ -410,7 +410,7 @@ void NetworkClient::onSocketError(QAbstractSocket::SocketError error)
 // {
 //     // 暂时禁用SSL错误处理，因为现在使用普通TCP连接
 //     Q_UNUSED(errors)
-//     LOG_INFO("SSL errors ignored - using plain TCP connection");
+//     // LOG_INFO removed
 //     
 //     // QStringList errorStrings;
 //     // QStringList errorDetails;
@@ -434,7 +434,7 @@ void NetworkClient::onSocketError(QAbstractSocket::SocketError error)
 //     // _socket->ignoreSslErrors();
 //     
 //     // 继续连接，不因为SSL错误而断开
-//     // LOG_INFO("Ignoring SSL errors and continuing connection");
+//     // // LOG_INFO removed
 //     
 //     // emit sslErrors(errors);
 // }
@@ -534,7 +534,7 @@ void NetworkClient::onReconnectTimer()
 
 void NetworkClient::handleReconnectionSuccess()
 {
-    LOG_INFO("Reconnection successful");
+    // LOG_INFO removed
     _currentReconnectAttempts = 0;
     setConnectionState(Connected);
 }
@@ -790,12 +790,32 @@ void NetworkClient::processJsonResponse(const QJsonObject &response)
             LOG_ERROR("Heartbeat timer stopped after receiving heartbeat response!");
         }
         
-        // 暂时禁用网络质量监控
-        // if (_qualityMonitor) {
-        //     _qualityMonitor->recordHeartbeatReceived(requestId);
-        // }
-        
         // 心跳响应不需要特殊处理，只是确认连接正常
+        // LOG_DEBUG removed
+    } else if (action == "error") {
+        // 处理错误响应
+        QString errorCode = response["error"].toString();
+        QString errorMessage = response["error_message"].toString();
+        LOG_WARNING(QString("Received error response: %1 - %2").arg(errorCode).arg(errorMessage));
+        
+        // 如果是认证错误，可能需要重新登录
+        if (errorCode == "AUTH_FAILED" || errorCode == "SESSION_EXPIRED") {
+            LOG_WARNING("Authentication failed, clearing session");
+            setAuthenticated(false);
+            emit authenticationFailed(errorMessage);
+        } else if (errorCode == "RATE_LIMIT_EXCEEDED") {
+            // 处理限流错误
+            LOG_WARNING(QString("Rate limit exceeded: %1").arg(errorMessage));
+            emit rateLimitExceeded(errorMessage);
+        } else if (errorMessage.contains("数据库错误") || errorMessage.contains("database error") || 
+                   errorMessage.contains("Driver not loaded")) {
+            // 处理数据库错误
+            LOG_ERROR(QString("Database error detected: %1").arg(errorMessage));
+            emit databaseError(errorMessage);
+        } else {
+            // 处理其他错误
+            emit requestFailed(errorCode, errorMessage);
+        }
     } else {
         // 发送消息接收信号，让ChatNetworkClient处理
         emit messageReceived(response);
@@ -910,7 +930,7 @@ void NetworkClient::setAuthenticated(bool authenticated, const QString& token)
         LOG_INFO(QString("Session token set: %1").arg(token.left(10) + "..."));
     } else if (!authenticated) {
         _sessionToken.clear();
-        LOG_INFO("Session token cleared");
+        // LOG_INFO removed
     }
     
     LOG_INFO(QString("Authentication state updated - isAuthenticated: %1, hasToken: %2")

@@ -98,7 +98,7 @@ void AsyncMessageQueue::shutdown()
         return;
     }
     
-    LOG_INFO("Shutting down async message queue...");
+    // LOG_INFO removed
     
     _shuttingDown = true;
     

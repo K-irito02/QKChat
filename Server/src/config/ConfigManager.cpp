@@ -113,7 +113,7 @@ bool ConfigManager::loadConfig(const QString &filePath, ConfigFormat format)
 
     // 在锁外记录日志和发射信号
     if (success) {
-        LOG_INFO(logMessage);
+        // 配置加载成功
         if (!validationError.isEmpty()) {
             LOG_WARNING(QString("Configuration validation failed: %1").arg(validationError));
         }
@@ -391,7 +391,7 @@ void ConfigManager::onReloadTimer()
 {
     // 使用QTimer延迟记录日志，避免在信号处理中直接调用LOG宏
     QTimer::singleShot(0, [this]() {
-        LOG_INFO("Configuration file changed, reloading...");
+        // 配置文件已更改，正在重新加载
 
         if (reloadConfig()) {
         

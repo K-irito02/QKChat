@@ -16,6 +16,9 @@ DatabaseManager::DatabaseManager(QObject *parent)
     , _connectionPool(nullptr)
     , _isConnected(false)
 {
+    // 注册应用程序退出时的清理函数
+    connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, 
+            this, &DatabaseManager::close);
 }
 
 DatabaseManager::~DatabaseManager()
@@ -44,8 +47,7 @@ bool DatabaseManager::initialize(const QString &host, int port, const QString &d
         return true;
     }
 
-    LOG_INFO(QString("Initializing database manager with connection pool: %1@%2:%3/%4")
-             .arg(username).arg(host).arg(port).arg(database));
+    // 初始化数据库管理器
 
     // 获取连接池实例
     _connectionPool = DatabaseConnectionPool::instance();
@@ -88,16 +90,23 @@ void DatabaseManager::close()
         return;
     }
 
-    LOG_INFO("Closing database manager...");
+    // 关闭数据库管理器
+    // LOG_INFO removed
+
+    // 确保所有数据库操作完成
+    QThread::msleep(100);
 
     if (_connectionPool) {
         _connectionPool->shutdown();
+        
+        // 等待连接池完全关闭
+        QThread::msleep(200);
     }
 
     _isConnected = false;
     emit connectionStateChanged(false);
 
-    LOG_INFO("Database manager closed");
+    // LOG_INFO removed
 }
 
 bool DatabaseManager::isConnected() const
@@ -235,7 +244,7 @@ bool DatabaseManager::createTables()
         return false;
     }
 
-    LOG_INFO("Creating database tables...");
+    // LOG_INFO removed
 
     // 使用事务确保表创建的原子性
     return executeTransaction([this](DatabaseConnection& dbConn) -> bool {
@@ -405,7 +414,7 @@ QSqlDatabase DatabaseManager::getConnection()
 
 bool DatabaseManager::optimizeDatabase()
 {
-    LOG_INFO("Optimizing database...");
+    // LOG_INFO removed
 
     return executeTransaction([this](DatabaseConnection& dbConn) -> bool {
         QStringList tables = {"users", "verification_codes", "user_sessions", "login_logs"};

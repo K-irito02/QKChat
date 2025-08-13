@@ -120,7 +120,7 @@ void RedisClient::close()
     _isConnected = false;
     emit connectionStateChanged(false);
     
-    LOG_INFO("Redis connection closed");
+    // LOG_INFO removed
 }
 
 bool RedisClient::isConnected() const
@@ -295,6 +295,33 @@ RedisClient::Result RedisClient::deleteSessionToken(qint64 userId)
     return del(key);
 }
 
+QStringList RedisClient::keys(const QString &pattern)
+{
+    QStringList result;
+    QString response;
+    
+    Result redisResult = sendCommand("KEYS", {pattern});
+    if (redisResult == Success) {
+        if (readResponse(response) == Success) {
+            // 解析数组响应
+            if (response.startsWith('*')) {
+                QStringList lines = response.split('\n');
+                int count = lines[0].mid(1).toInt();
+                
+                for (int i = 1; i < lines.size() && result.size() < count; i++) {
+                    QString line = lines[i].trimmed();
+                    if (line.startsWith('$') && i + 1 < lines.size()) {
+                        i++; // 跳过长度行
+                        result.append(lines[i].trimmed());
+                    }
+                }
+            }
+        }
+    }
+    
+    return result;
+}
+
 void RedisClient::onConnected()
 {
 
@@ -332,7 +359,7 @@ void RedisClient::onSocketError(QAbstractSocket::SocketError error)
 
 void RedisClient::onReconnectTimer()
 {
-    LOG_INFO("Attempting to reconnect to Redis...");
+    // LOG_INFO removed
     reconnect();
 }
 

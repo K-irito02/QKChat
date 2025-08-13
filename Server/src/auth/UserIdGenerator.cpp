@@ -32,7 +32,7 @@ UserIdGenerator::GenerateResult UserIdGenerator::generateNextUserId(QString& use
 {
     QMutexLocker locker(&_mutex);
     
-    LOG_INFO("Starting user ID generation");
+    // LOG_INFO removed
     
     int nextId = 0;
     GenerateResult result = getNextIdFromDatabase(nextId);
@@ -236,7 +236,7 @@ bool UserIdGenerator::initializeSequenceTable()
     }
     
     if (checkQuery.next() && checkQuery.value(0).toInt() > 0) {
-        LOG_INFO("User ID sequence table already initialized");
+        // LOG_INFO removed
         return true;
     }
     

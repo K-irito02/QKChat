@@ -179,6 +179,31 @@ signals:
     void connectionStateChanged(ConnectionState state);
     
     /**
+     * @brief 认证失败信号
+     * @param errorMessage 错误信息
+     */
+    void authenticationFailed(const QString &errorMessage);
+    
+    /**
+     * @brief 数据库错误信号
+     * @param errorMessage 错误信息
+     */
+    void databaseError(const QString &errorMessage);
+    
+    /**
+     * @brief 限流超限信号
+     * @param errorMessage 错误信息
+     */
+    void rateLimitExceeded(const QString &errorMessage);
+    
+    /**
+     * @brief 请求失败信号
+     * @param errorCode 错误代码
+     * @param errorMessage 错误信息
+     */
+    void requestFailed(const QString &errorCode, const QString &errorMessage);
+    
+    /**
      * @brief 登录响应信号
      * @param requestId 请求ID
      * @param response 响应数据

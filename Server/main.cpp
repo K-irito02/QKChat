@@ -140,20 +140,20 @@ int main(int argc, char *argv[])
     });
     
     QObject::connect(serverManager, &ServerManager::clientConnected, [](int count) {
-        LOG_INFO(QString("Client connected, total: %1").arg(count));
+        // Client connected
     });
     
     QObject::connect(serverManager, &ServerManager::userLoggedIn, [](qint64 userId, const QString &username) {
-        LOG_INFO(QString("User logged in: %1 (ID: %2)").arg(username).arg(userId));
+        // User logged in
     });
 
     // 添加应用程序退出处理
     QObject::connect(&a, &QApplication::aboutToQuit, [serverManager]() {
-        LOG_INFO("Application about to quit, cleaning up...");
+        // LOG_INFO removed
         if (serverManager) {
             serverManager->stopServer();
         }
-        LOG_INFO("Cleanup completed");
+        // LOG_INFO removed
     });
 
     return a.exec();

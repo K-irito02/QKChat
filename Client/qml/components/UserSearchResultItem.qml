@@ -40,6 +40,7 @@ Rectangle {
     
     MouseArea {
         anchors.fill: parent
+        anchors.rightMargin: 200  // 为按钮区域留出空间
         hoverEnabled: true
         
         onEntered: isHovered = true
@@ -204,6 +205,8 @@ Rectangle {
                 
                 onClicked: {
                     viewDetailsClicked()
+                    // 阻止事件传播到父级MouseArea
+                    mouse.accepted = true
                 }
             }
             
@@ -247,6 +250,8 @@ Rectangle {
                 
                 onClicked: {
                     addFriendClicked()
+                    // 阻止事件传播到父级MouseArea
+                    mouse.accepted = true
                 }
             }
         }

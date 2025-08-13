@@ -45,9 +45,9 @@ bool OnlineStatusService::initialize()
         return true;
     }
     
-    // 测试数据库连接
-    QSqlDatabase db = getDatabase();
-    if (!db.isValid() || !db.isOpen()) {
+    // 测试数据库连接 - 使用RAII包装器
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
         LOG_ERROR("Failed to initialize OnlineStatusService: database not available");
         return false;
     }
@@ -56,7 +56,7 @@ bool OnlineStatusService::initialize()
     _cleanupTimer->start();
     
     _initialized = true;
-    LOG_INFO("OnlineStatusService initialized successfully");
+    // OnlineStatusService初始化成功
     return true;
 }
 
@@ -81,7 +81,7 @@ bool OnlineStatusService::userOnline(qint64 userId, const QString& clientId, con
     newStatus.ipAddress = ipAddress;
     _userStatusCache[userId] = newStatus;
     
-    LOG_INFO(QString("User %1 went online with client %2").arg(userId).arg(clientId));
+    // 用户上线
     
     // 发送信号
     if (oldStatus != Online) {
@@ -114,7 +114,7 @@ bool OnlineStatusService::userOffline(qint64 userId, const QString& clientId)
     newStatus.clientId = clientId;
     _userStatusCache[userId] = newStatus;
     
-    LOG_INFO(QString("User %1 went offline with client %2").arg(userId).arg(clientId));
+    // 用户下线
     
     // 发送信号
     if (oldStatus != Offline) {
@@ -151,7 +151,7 @@ bool OnlineStatusService::updateUserStatus(qint64 userId, OnlineStatus status, c
     newStatus.clientId = clientId;
     _userStatusCache[userId] = newStatus;
     
-    LOG_INFO(QString("User %1 status changed from %2 to %3").arg(userId).arg(statusToString(oldStatus)).arg(statusToString(status)));
+    // 用户状态已更改
     
     // 发送信号
     emit userStatusChanged(userId, oldStatus, status);
@@ -166,16 +166,20 @@ bool OnlineStatusService::updateHeartbeat(qint64 userId, const QString& clientId
 {
     QMutexLocker locker(&_mutex);
     
-    // 更新最后在线时间
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
+    // 更新最后在线时间 - 使用RAII包装器
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection for heartbeat update");
+        return false;
+    }
     
-    query.prepare("UPDATE user_online_status SET last_seen = NOW() WHERE user_id = :user_id AND client_id = :client_id");
-    query.bindValue(":user_id", userId);
-    query.bindValue(":client_id", clientId);
+    int result = dbConn.executeUpdate(
+        "UPDATE user_online_status SET last_seen = NOW() WHERE user_id = ? AND client_id = ?",
+        {userId, clientId}
+    );
     
-    if (!query.exec()) {
-        LOG_ERROR(QString("Failed to update heartbeat for user %1: %2").arg(userId).arg(query.lastError().text()));
+    if (result == -1) {
+        LOG_ERROR(QString("Failed to update heartbeat for user %1").arg(userId));
         return false;
     }
     
@@ -273,15 +277,20 @@ int OnlineStatusService::getOnlineUserCount()
 {
     QMutexLocker locker(&_mutex);
 
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection");
+        return 0;
+    }
 
-    query.prepare("SELECT COUNT(DISTINCT user_id) FROM user_online_status WHERE "
-                 "status IN ('online', 'away', 'busy') AND "
-                 "last_seen > DATE_SUB(NOW(), INTERVAL :timeout SECOND)");
-    query.bindValue(":timeout", HEARTBEAT_TIMEOUT);
+    QSqlQuery query = dbConn.executeQuery(
+        "SELECT COUNT(DISTINCT user_id) FROM user_online_status WHERE "
+        "status IN ('online', 'away', 'busy') AND "
+        "last_seen > DATE_SUB(NOW(), INTERVAL ? SECOND)",
+        {HEARTBEAT_TIMEOUT}
+    );
 
-    if (!query.exec() || !query.next()) {
+    if (query.lastError().isValid() || !query.next()) {
         LOG_ERROR(QString("Failed to get online user count: %1").arg(query.lastError().text()));
         return 0;
     }
@@ -294,15 +303,22 @@ QList<qint64> OnlineStatusService::getOnlineUsers()
     QMutexLocker locker(&_mutex);
 
     QList<qint64> onlineUsers;
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
+    
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection for online users");
+        return onlineUsers;
+    }
 
-    query.prepare("SELECT DISTINCT user_id FROM user_online_status WHERE "
-                 "status IN ('online', 'away', 'busy') AND "
-                 "last_seen > DATE_SUB(NOW(), INTERVAL :timeout SECOND)");
-    query.bindValue(":timeout", HEARTBEAT_TIMEOUT);
+    QSqlQuery query = dbConn.executeQuery(
+        "SELECT DISTINCT user_id FROM user_online_status WHERE "
+        "status IN ('online', 'away', 'busy') AND "
+        "last_seen > DATE_SUB(NOW(), INTERVAL ? SECOND)",
+        {HEARTBEAT_TIMEOUT}
+    );
 
-    if (!query.exec()) {
+    if (query.lastError().isValid()) {
         LOG_ERROR(QString("Failed to get online users: %1").arg(query.lastError().text()));
         return onlineUsers;
     }
@@ -356,30 +372,35 @@ void OnlineStatusService::broadcastStatusToFriends(qint64 userId, OnlineStatus s
         }
     }
 
-    LOG_INFO(QString("Broadcasted status change for user %1 to %2 friends").arg(userId).arg(friends.size()));
+    // 状态变更已广播
 }
 
 void OnlineStatusService::cleanupExpiredStatus()
 {
     QMutexLocker locker(&_mutex);
 
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
-
-    // 将超时的用户状态设为离线
-    query.prepare("UPDATE user_online_status SET status = 'offline' WHERE "
-                 "status != 'offline' AND "
-                 "last_seen < DATE_SUB(NOW(), INTERVAL :timeout SECOND)");
-    query.bindValue(":timeout", HEARTBEAT_TIMEOUT);
-
-    if (!query.exec()) {
-        LOG_ERROR(QString("Failed to cleanup expired status: %1").arg(query.lastError().text()));
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection for cleanup");
         return;
     }
 
-    int affectedRows = query.numRowsAffected();
+    // 将超时的用户状态设为离线
+    int affectedRows = dbConn.executeUpdate(
+        "UPDATE user_online_status SET status = 'offline' WHERE "
+        "status != 'offline' AND "
+        "last_seen < DATE_SUB(NOW(), INTERVAL ? SECOND)",
+        {HEARTBEAT_TIMEOUT}
+    );
+
+    if (affectedRows == -1) {
+        LOG_ERROR("Failed to cleanup expired status");
+        return;
+    }
+
     if (affectedRows > 0) {
-        LOG_INFO(QString("Cleaned up %1 expired user status records").arg(affectedRows));
+        // 清理过期状态记录完成
 
         // 清理缓存中的过期状态
         QDateTime now = QDateTime::currentDateTime();
@@ -420,34 +441,32 @@ void OnlineStatusService::onCleanupTimer()
     cleanupExpiredStatus();
 }
 
-QSqlDatabase OnlineStatusService::getDatabase()
-{
-    return DatabaseManager::instance()->getConnection();
-}
+// 移除getDatabase方法，改用RAII包装器
 
 bool OnlineStatusService::updateStatusInDatabase(qint64 userId, OnlineStatus status, const QString& clientId,
                                                 const QString& deviceInfo, const QString& ipAddress)
 {
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection for status update");
+        return false;
+    }
 
     // 使用UPSERT语法更新或插入状态
-    query.prepare("INSERT INTO user_online_status (user_id, status, client_id, device_info, ip_address, last_seen) "
-                 "VALUES (:user_id, :status, :client_id, :device_info, :ip_address, NOW()) "
-                 "ON DUPLICATE KEY UPDATE "
-                 "status = VALUES(status), "
-                 "device_info = VALUES(device_info), "
-                 "ip_address = VALUES(ip_address), "
-                 "last_seen = NOW()");
+    int result = dbConn.executeUpdate(
+        "INSERT INTO user_online_status (user_id, status, client_id, device_info, ip_address, last_seen) "
+        "VALUES (?, ?, ?, ?, ?, NOW()) "
+        "ON DUPLICATE KEY UPDATE "
+        "status = VALUES(status), "
+        "device_info = VALUES(device_info), "
+        "ip_address = VALUES(ip_address), "
+        "last_seen = NOW()",
+        {userId, statusToString(status), clientId, deviceInfo, ipAddress}
+    );
 
-    query.bindValue(":user_id", userId);
-    query.bindValue(":status", statusToString(status));
-    query.bindValue(":client_id", clientId);
-    query.bindValue(":device_info", deviceInfo);
-    query.bindValue(":ip_address", ipAddress);
-
-    if (!query.exec()) {
-        LOG_ERROR(QString("Failed to update user status in database: %1").arg(query.lastError().text()));
+    if (result == -1) {
+        LOG_ERROR(QString("Failed to update user status in database for user %1").arg(userId));
         return false;
     }
 
@@ -458,15 +477,21 @@ OnlineStatusService::UserStatusInfo OnlineStatusService::loadStatusFromDatabase(
 {
     UserStatusInfo status;
 
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection for loading status");
+        return status;
+    }
 
-    query.prepare("SELECT status, last_seen, client_id, device_info, ip_address "
-                 "FROM user_online_status WHERE user_id = :user_id "
-                 "ORDER BY last_seen DESC LIMIT 1");
-    query.bindValue(":user_id", userId);
+    QSqlQuery query = dbConn.executeQuery(
+        "SELECT status, last_seen, client_id, device_info, ip_address "
+        "FROM user_online_status WHERE user_id = ? "
+        "ORDER BY last_seen DESC LIMIT 1",
+        {userId}
+    );
 
-    if (!query.exec()) {
+    if (query.lastError().isValid()) {
         LOG_ERROR(QString("Failed to load user status from database: %1").arg(query.lastError().text()));
         return status;
     }
@@ -497,13 +522,19 @@ QList<qint64> OnlineStatusService::getUserFriends(qint64 userId)
 {
     QList<qint64> friends;
 
-    QSqlDatabase db = getDatabase();
-    QSqlQuery query(db);
+    // 使用RAII包装器自动管理数据库连接
+    DatabaseConnection dbConn;
+    if (!dbConn.isValid()) {
+        LOG_ERROR("Failed to acquire database connection for getting friends");
+        return friends;
+    }
 
-    query.prepare("SELECT friend_id FROM friendships WHERE user_id = :user_id AND status = 'accepted'");
-    query.bindValue(":user_id", userId);
+    QSqlQuery query = dbConn.executeQuery(
+        "SELECT friend_id FROM friendships WHERE user_id = ? AND status = 'accepted'",
+        {userId}
+    );
 
-    if (!query.exec()) {
+    if (query.lastError().isValid()) {
         LOG_ERROR(QString("Failed to get user friends: %1").arg(query.lastError().text()));
         return friends;
     }

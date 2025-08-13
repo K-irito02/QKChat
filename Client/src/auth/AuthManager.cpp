@@ -160,7 +160,7 @@ bool AuthManager::login(const QString &username, const QString &password, bool r
         return false;
     }
     
-    LOG_INFO(QString("Login request sent for user: %1").arg(username));
+
     return true;
 }
 
@@ -195,7 +195,7 @@ bool AuthManager::registerUser(const QString &username, const QString &email,
         return false;
     }
     
-    LOG_INFO(QString("Register request sent for user: %1, email: %2").arg(username).arg(email));
+
     return true;
 }
 
@@ -228,7 +228,7 @@ bool AuthManager::sendVerificationCode(const QString &email)
         return false;
     }
     
-    LOG_INFO(QString("Verification code request sent for email: %1").arg(email));
+
     return true;
 }
 
@@ -253,7 +253,7 @@ bool AuthManager::checkUsernameAvailability(const QString &username)
         return false;
     }
     
-    LOG_INFO(QString("Username availability check request sent for: %1").arg(username));
+
     return true;
 }
 
@@ -278,7 +278,7 @@ bool AuthManager::checkEmailAvailability(const QString &email)
         return false;
     }
     
-    LOG_INFO(QString("Email availability check request sent for: %1").arg(email));
+
     return true;
 }
 
@@ -290,7 +290,7 @@ void AuthManager::logout()
     
     setAuthState(LoggingOut);
     
-    LOG_INFO("User logging out");
+
     
     // 销毁会话
     _sessionManager->destroySession();
@@ -371,10 +371,10 @@ void AuthManager::onNetworkConnectionStateChanged(NetworkClient::ConnectionState
     bool connected = (state == NetworkClient::Connected);
 
     if (connected) {
-        LOG_INFO("Connected to server");
+    
         setAuthState(Idle);
     } else {
-        LOG_INFO("Disconnected from server");
+    
         if (_authState == Connecting) {
             setAuthState(Idle);
         }
@@ -385,7 +385,7 @@ void AuthManager::onNetworkConnectionStateChanged(NetworkClient::ConnectionState
 
 void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &response)
 {
-    LOG_INFO(QString("Login response received: %1").arg(requestId));
+
 
     AuthResponse* authResponse = processAuthResponse(response);
 
@@ -403,7 +403,7 @@ void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &r
         
         // 更新NetworkClient的认证状态
         if (_networkClient) {
-            LOG_INFO("Updating NetworkClient authentication state");
+        
             _networkClient->setAuthenticated(true, sessionToken);
         } else {
             LOG_ERROR("NetworkClient is null, cannot update authentication state");
@@ -415,7 +415,7 @@ void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &r
         // 发送登录成功信号
         emit loginSucceeded(user);
         
-        LOG_INFO(QString("User login successful: %1").arg(userData["username"].toString()));
+    
     } else {
         // 登录失败
         setAuthState(Idle);
@@ -429,7 +429,7 @@ void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &r
 
 void AuthManager::onRegisterResponse(const QString &requestId, const QJsonObject &response)
 {
-    LOG_INFO(QString("Register response received: %1").arg(requestId));
+
 
     AuthResponse* authResponse = processAuthResponse(response);
 
@@ -446,7 +446,7 @@ void AuthManager::onRegisterResponse(const QString &requestId, const QJsonObject
         // 发送注册成功信号
         emit registerSucceeded(user);
         
-        LOG_INFO(QString("User registration successful: %1").arg(userData["username"].toString()));
+    
     } else {
         // 注册失败
         setAuthState(Idle);
@@ -463,7 +463,7 @@ void AuthManager::onRegisterResponse(const QString &requestId, const QJsonObject
 
 void AuthManager::onVerificationCodeResponse(const QString &requestId, const QJsonObject &response)
 {
-    LOG_INFO(QString("Verification code response received: %1").arg(requestId));
+
     
     setAuthState(Idle);
     
@@ -484,7 +484,7 @@ void AuthManager::onVerificationCodeResponse(const QString &requestId, const QJs
 
 void AuthManager::onUsernameAvailabilityResponse(const QString &requestId, const QJsonObject &response)
 {
-    LOG_INFO(QString("Username availability response received: %1").arg(requestId));
+
     
     AuthResponse* authResponse = processAuthResponse(response);
     
@@ -510,7 +510,7 @@ void AuthManager::onUsernameAvailabilityResponse(const QString &requestId, const
 
 void AuthManager::onEmailAvailabilityResponse(const QString &requestId, const QJsonObject &response)
 {
-    LOG_INFO(QString("Email availability response received: %1").arg(requestId));
+
     
     AuthResponse* authResponse = processAuthResponse(response);
     
@@ -584,7 +584,7 @@ void AuthManager::performAutoLogin(const QString &username, const QString &passw
         return;
     }
 
-    LOG_INFO("Auto login request sent");
+
 }
 
 void AuthManager::setAuthState(AuthState state)
