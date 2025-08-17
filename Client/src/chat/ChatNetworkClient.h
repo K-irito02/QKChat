@@ -18,6 +18,7 @@ class NetworkClient;
 class ChatNetworkClient : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(bool isAuthenticated READ isAuthenticated NOTIFY authenticationStateChanged)
 
 public:
     explicit ChatNetworkClient(QObject *parent = nullptr);
@@ -27,6 +28,11 @@ public:
      * @brief 获取单例实例
      */
     static ChatNetworkClient* instance();
+
+    /**
+     * @brief 检查是否已认证
+     */
+    Q_INVOKABLE bool isAuthenticated() const;
 
     /**
      * @brief 初始化聊天客户端
@@ -48,7 +54,19 @@ public:
     /**
      * @brief 响应好友请求
      */
-    Q_INVOKABLE void respondToFriendRequest(qint64 friendshipId, bool accept);
+    Q_INVOKABLE void respondToFriendRequest(qint64 requestId, bool accept);
+
+    /**
+     * @brief 响应好友请求（带备注和分组设置）
+     */
+    Q_INVOKABLE void respondToFriendRequestWithSettings(qint64 requestId, bool accept, 
+                                                       const QString& note = QString(), 
+                                                       const QString& groupName = QString());
+
+    /**
+     * @brief 忽略好友请求
+     */
+    Q_INVOKABLE void ignoreFriendRequest(qint64 requestId);
 
     /**
      * @brief 获取好友列表
@@ -59,6 +77,11 @@ public:
      * @brief 获取待处理的好友请求
      */
     Q_INVOKABLE void getFriendRequests();
+
+    /**
+     * @brief 删除好友请求通知
+     */
+    Q_INVOKABLE void deleteFriendRequestNotification(qint64 requestId);
 
     /**
      * @brief 删除好友
@@ -89,7 +112,7 @@ public:
     /**
      * @brief 获取好友分组列表
      */
-    void getFriendGroups();
+    Q_INVOKABLE void getFriendGroups();
 
     /**
      * @brief 创建好友分组
@@ -179,10 +202,20 @@ public:
     void searchMessages(const QString& keyword, qint64 chatUserId = -1, int limit = 20);
 
 signals:
-    // 好友管理信号
+    // 好友请求相关信号
     void friendRequestSent(bool success, const QString& message);
     void friendRequestResponded(bool success, const QString& message);
+    void friendRequestAccepted(qint64 requestId, qint64 acceptedByUserId, const QString& acceptedByUsername,
+                             const QString& acceptedByDisplayName, const QString& note, const QString& groupName, const QString& timestamp);
+    void friendRequestRejected(qint64 requestId, qint64 rejectedByUserId, const QString& rejectedByUsername,
+                                 const QString& rejectedByDisplayName, const QString& timestamp);
+    void friendRequestIgnored(qint64 requestId, qint64 ignoredByUserId, const QString& ignoredByUsername,
+                                const QString& ignoredByDisplayName, const QString& timestamp);
+    void friendRequestNotification(qint64 requestId, qint64 fromUserId, const QString& fromUsername,
+                                 const QString& fromDisplayName, const QString& notificationType,
+                                 const QString& message, const QString& timestamp, bool isOfflineMessage);
     void friendListReceived(const QJsonArray& friends);
+    void friendListUpdated();  // 新增：好友列表更新信号
     void friendRequestsReceived(const QJsonArray& requests);
     void friendRemoved(qint64 friendId, bool success);
     void userBlocked(qint64 userId, bool success);
@@ -221,6 +254,9 @@ signals:
 
     // 消息状态更新信号
     void messageStatusUpdated(const QString& messageId, const QString& status);
+
+    // 认证状态变化信号
+    void authenticationStateChanged(bool isAuthenticated);
 
 private slots:
     /**
@@ -269,7 +305,7 @@ private:
     mutable QMutex _mutex;
     
     // 心跳间隔（毫秒）
-    static const int HEARTBEAT_INTERVAL = 30000; // 30秒
+    static const int HEARTBEAT_INTERVAL = 10000; // 10秒（临时用于测试）
 };
 
 #endif // CHATNETWORKCLIENT_H

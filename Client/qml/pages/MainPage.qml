@@ -13,6 +13,7 @@ import "../windows" as Windows
  */
 Rectangle {
     id: mainPage
+    anchors.fill: parent
 
     // 公共属性
     property var themeManager
@@ -40,9 +41,37 @@ Rectangle {
     // 好友管理相关属性
     property var currentChatUser: null
     property bool showFriendList: true
+    
+    // 好友请求相关属性
+    property var friendRequests: []
+    property bool isLoadingRequests: false
+    
+    // 好友请求刷新定时器
+    Timer {
+        id: friendRequestTimer
+        interval: 30000 // 30秒刷新一次
+        repeat: true
+        running: false
+        onTriggered: {
+            refreshFriendRequests()
+        }
+    }
 
     // 信号
     signal logout()
+
+    // 安全的主题访问函数
+    function getThemeColor(colorProperty, defaultValue) {
+        if (themeManager && themeManager.currentTheme && themeManager.currentTheme[colorProperty]) {
+            return themeManager.currentTheme[colorProperty]
+        }
+        return defaultValue || "#f5f5f5"
+    }
+    
+    // 检查主题管理器是否可用
+    function isThemeManagerAvailable() {
+        return themeManager && themeManager.currentTheme
+    }
 
     // 监听navWidth变化，确保状态同步
     onNavWidthChanged: {
@@ -56,8 +85,63 @@ Rectangle {
             }
         }
     }
+    
+    // 刷新好友请求列表
+    function refreshFriendRequests() {
+        console.log("刷新好友请求列表")
+        if (isLoadingRequests) {
+            console.log("好友请求正在加载中，跳过重复刷新")
+            return
+        }
+        isLoadingRequests = true
+        if (ChatNetworkClient) {
+            ChatNetworkClient.getFriendRequests()
+        } else {
+            console.error("ChatNetworkClient not available")
+            isLoadingRequests = false
+        }
+    }
+    
+    // 刷新好友列表和分组（防重复调用）
+    property bool isRefreshingFriends: false
+    function refreshFriendData() {
+        console.log("=== 开始刷新好友数据 ===")
+        console.log("当前时间:", new Date().toISOString())
+        console.log("刷新状态:", isRefreshingFriends ? "正在刷新中" : "可以刷新")
+        
+        if (isRefreshingFriends) {
+            console.log("好友数据正在刷新中，跳过重复刷新")
+            return
+        }
+        
+        console.log("开始刷新好友数据")
+        isRefreshingFriends = true
+        
+        if (ChatNetworkClient) {
+            console.log("ChatNetworkClient可用，发送好友列表请求...")
+            ChatNetworkClient.getFriendList()
+            console.log("好友列表请求已发送")
+            
+            console.log("发送好友分组请求...")
+            ChatNetworkClient.getFriendGroups()
+            console.log("好友分组请求已发送")
+        } else {
+            console.error("ChatNetworkClient不可用，无法刷新好友数据")
+        }
+        
+        // 重置刷新状态
+        var resetTimer = Qt.createQmlObject('import QtQuick 2.15; Timer { interval: 2000; repeat: false; running: true }', mainPage, "resetRefreshTimer")
+        resetTimer.triggered.connect(function() {
+            console.log("重置好友数据刷新状态")
+            isRefreshingFriends = false
+        })
+        
+        console.log("=== 好友数据刷新请求完成 ===")
+    }
+    
+    // 初始化时获取好友请求和好友列表（已合并到文件末尾的Component.onCompleted中）
 
-    color: themeManager.currentTheme.backgroundColor
+    color: themeManager && themeManager.currentTheme ? themeManager.currentTheme.backgroundColor : "#f5f5f5"
 
     // 主布局：左侧导航栏 + 垂直分割线 + 右侧聊天区域
     RowLayout {
@@ -69,8 +153,8 @@ Rectangle {
             id: leftPanel
             Layout.preferredWidth: navWidth
             Layout.fillHeight: true
-            color: themeManager.currentTheme.surfaceColor
-            border.color: themeManager.currentTheme.borderColor
+            color: getThemeColor("surfaceColor", "#ffffff")
+            border.color: getThemeColor("borderColor", "#e0e0e0")
             border.width: 1
 
             Behavior on Layout.preferredWidth {
@@ -85,8 +169,8 @@ Rectangle {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 60  // 与右侧聊天头部高度保持一致
-                    color: themeManager.currentTheme.backgroundColor
-                    border.color: themeManager.currentTheme.borderColor
+                    color: themeManager && themeManager.currentTheme ? themeManager.currentTheme.backgroundColor : "#f5f5f5"
+                    border.color: themeManager && themeManager.currentTheme ? themeManager.currentTheme.borderColor : "#e0e0e0"
                     border.width: 1
 
                     // 收缩模式下的布局
@@ -101,14 +185,14 @@ Rectangle {
                             anchors.centerIn: parent
                             width: 36
                             height: 36
-                            color: themeManager.currentTheme.primaryColor
+                            color: getThemeColor("primaryColor", "#2196F3")
                             radius: 18
-                            border.color: themeManager.currentTheme.successColor
+                            border.color: getThemeColor("successColor", "#4CAF50")
                             border.width: 2
 
                             Text {
                                 anchors.centerIn: parent
-                                text: sessionManager && sessionManager.currentUser ?
+                                text: (sessionManager && sessionManager.currentUser && sessionManager.currentUser.username) ?
                                       sessionManager.currentUser.username.charAt(0).toUpperCase() : "U"
                                 color: "white"
                                 font.pixelSize: 14
@@ -128,7 +212,7 @@ Rectangle {
                             visible: width > 10  // 只有在有足够空间时才显示
 
                             background: Rectangle {
-                                color: parent.hovered ? themeManager.currentTheme.borderColor : "transparent"
+                                color: parent.hovered ? getThemeColor("borderColor", "#e0e0e0") : "transparent"
                                 radius: 10
 
                                 Behavior on color {
@@ -138,7 +222,7 @@ Rectangle {
 
                             contentItem: Text {
                                 text: "▶"
-                                color: themeManager.currentTheme.textSecondaryColor
+                                color: getThemeColor("textSecondaryColor", "#666666")
                                 font.pixelSize: 8
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
@@ -168,14 +252,14 @@ Rectangle {
                             Layout.preferredWidth: 36
                             Layout.preferredHeight: 36
                             Layout.maximumWidth: 40
-                            color: themeManager.currentTheme.primaryColor
+                            color: getThemeColor("primaryColor", "#2196F3")
                             radius: 18
-                            border.color: themeManager.currentTheme.successColor
+                            border.color: getThemeColor("successColor", "#4CAF50")
                             border.width: 2
 
                             Text {
                                 anchors.centerIn: parent
-                                text: sessionManager && sessionManager.currentUser ?
+                                text: (sessionManager && sessionManager.currentUser && sessionManager.currentUser.username) ?
                                       sessionManager.currentUser.username.charAt(0).toUpperCase() : "U"
                                 color: "white"
                                 font.pixelSize: 14
@@ -191,9 +275,9 @@ Rectangle {
 
                             Text {
                                 Layout.fillWidth: true
-                                text: sessionManager.currentUser ?
+                                text: (sessionManager && sessionManager.currentUser && sessionManager.currentUser.username) ?
                                       sessionManager.currentUser.username : "用户"
-                                color: themeManager.currentTheme.textPrimaryColor
+                                color: getThemeColor("textPrimaryColor", "#333333")
                                 font.pixelSize: 12
                                 font.weight: Font.Medium
                                 elide: Text.ElideRight
@@ -922,8 +1006,8 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: themeManager.currentTheme.backgroundColor
-            border.color: themeManager.currentTheme.borderColor
+            color: getThemeColor("backgroundColor", "#f5f5f5")
+            border.color: getThemeColor("borderColor", "#e0e0e0")
             border.width: 1
 
             ColumnLayout {
@@ -934,8 +1018,8 @@ Rectangle {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 60
-                    color: themeManager.currentTheme.surfaceColor
-                    border.color: themeManager.currentTheme.borderColor
+                    color: getThemeColor("surfaceColor", "#ffffff")
+                    border.color: getThemeColor("borderColor", "#e0e0e0")
                     border.width: 1
 
                     // 使用绝对定位确保精准对齐
@@ -950,7 +1034,7 @@ Rectangle {
                             anchors.verticalCenter: parent.verticalCenter
                             width: 40
                             height: 40
-                            color: themeManager.currentTheme.secondaryColor
+                            color: getThemeColor("secondaryColor", "#FF9800")
                             radius: 20
 
                             Text {
@@ -969,7 +1053,7 @@ Rectangle {
 
                             Text {
                                 text: "产品设计小组"
-                                color: themeManager.currentTheme.textPrimaryColor
+                                color: getThemeColor("textPrimaryColor", "#333333")
                                 font.pixelSize: 16
                                 font.weight: Font.Medium
                                 horizontalAlignment: Text.AlignHCenter
@@ -977,43 +1061,62 @@ Rectangle {
 
                             Text {
                                 text: "5名成员"
-                                color: themeManager.currentTheme.textSecondaryColor
+                                color: getThemeColor("textSecondaryColor", "#666666")
                                 font.pixelSize: 12
                                 horizontalAlignment: Text.AlignHCenter
                             }
                         }
 
-                        // 聊天设置按钮 - 右侧对齐
+                        // 调试按钮
                         Button {
                             anchors.right: parent.right
+                            anchors.rightMargin: 40
                             anchors.verticalCenter: parent.verticalCenter
-                            width: 32
-                            height: 32
-
+                            width: 40
+                            height: 40
+                            
                             background: Rectangle {
-                                color: parent.hovered ? themeManager.currentTheme.borderColor : "transparent"
-                                radius: 16
-
+                                color: parent.pressed ? Qt.darker(themeManager.currentTheme.primaryColor, 1.2) :
+                                       parent.hovered ? Qt.lighter(themeManager.currentTheme.primaryColor, 1.1) :
+                                       themeManager.currentTheme.primaryColor
+                                radius: 20
+                                
                                 Behavior on color {
                                     ColorAnimation { duration: 150 }
                                 }
                             }
-
-                            contentItem: Text {
-                                text: "⚙"
-                                color: themeManager.currentTheme.textSecondaryColor
-                                font.pixelSize: 14
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
+                            
+                            contentItem: Text { text: "🐛" }
                             onClicked: {
-                                messageDialog.showInfo("功能开发中", "聊天设置功能正在开发中")
+                                debugRefreshFriendData()
+                                messageDialog.showInfo("调试", "已手动刷新好友数据，请查看控制台日志")
                             }
-
-                            ToolTip.visible: hovered
-                            ToolTip.text: "聊天设置"
-                            ToolTip.delay: 500
+                        }
+                        
+                        // 测试好友请求响应按钮
+                        Button {
+                            anchors.right: parent.right
+                            anchors.rightMargin: 90
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 40
+                            height: 40
+                            
+                            background: Rectangle {
+                                color: parent.pressed ? Qt.darker(themeManager.currentTheme.secondaryColor, 1.2) :
+                                       parent.hovered ? Qt.lighter(themeManager.currentTheme.secondaryColor, 1.1) :
+                                       themeManager.currentTheme.secondaryColor
+                                radius: 20
+                                
+                                Behavior on color {
+                                    ColorAnimation { duration: 150 }
+                                }
+                            }
+                            
+                            contentItem: Text { text: "🧪" }
+                            onClicked: {
+                                testFriendRequestResponse()
+                                messageDialog.showInfo("测试", "已发送测试好友请求响应，请查看控制台日志")
+                            }
                         }
                     }
                 }
@@ -1024,7 +1127,7 @@ Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.preferredHeight: parent.height * horizontalSplitPosition
-                    color: themeManager.currentTheme.backgroundColor
+                    color: getThemeColor("backgroundColor", "#f5f5f5")
 
                     ScrollView {
                         anchors.fill: parent
@@ -1040,45 +1143,45 @@ Rectangle {
                             verticalLayoutDirection: ListView.TopToBottom
 
                             // 模拟消息数据 - 按时间顺序排列
-                            Component.onCompleted: {
-                                // 检查是否已经有数据，避免重复添加
-                                if (messagesModel.count === 0) {
-                                    messagesModel.append({
-                                        "sender": "王芳",
-                                        "content": "设计方案的修改已经发送给大家了，大家看看有没有问题",
-                                        "time": "10:15",
-                                        "isOwn": false,
-                                        "avatar": "王"
-                                    })
-                                    messagesModel.append({
-                                        "sender": "戴雷",
-                                        "content": "我同意上面的观点，能够更好地满足用户需求。大家有什么其他想法吗？",
-                                        "time": "10:22",
-                                        "isOwn": false,
-                                        "avatar": "戴"
-                                    })
-                                    messagesModel.append({
-                                        "sender": "我",
-                                        "content": "我同意了，这个布局确实非常棒！大家主要做的很棒的",
-                                        "time": "10:28",
-                                        "isOwn": true,
-                                        "avatar": sessionManager && sessionManager.currentUser ?
-                                                 sessionManager.currentUser.username.charAt(0).toUpperCase() : "我"
-                                    })
-                                    messagesModel.append({
-                                        "sender": "赵雷",
-                                        "content": "我觉得这个方案很好，能够更好地满足用户需求。大家有什么其他想法吗？",
-                                        "time": "10:38",
-                                        "isOwn": false,
-                                        "avatar": "赵"
-                                    })
+                            // Component.onCompleted: {
+                            //     // 检查是否已经有数据，避免重复添加
+                            //     if (messagesModel.count === 0) {
+                            //         messagesModel.append({
+                            //             "sender": "王芳",
+                            //             "content": "设计方案的修改已经发送给大家了，大家看看有没有问题",
+                            //             "time": "10:15",
+                            //             "isOwn": false,
+                            //             "avatar": "王"
+                            //         })
+                            //         messagesModel.append({
+                            //             "sender": "戴雷",
+                            //             "content": "我同意上面的观点，能够更好地满足用户需求。大家有什么其他想法吗？",
+                            //             "time": "10:22",
+                            //             "isOwn": false,
+                            //             "avatar": "戴"
+                            //         })
+                            //         messagesModel.append({
+                            //             "sender": "我",
+                            //             "content": "我同意了，这个布局确实非常棒！大家主要做的很棒的",
+                            //             "time": "10:28",
+                            //             "isOwn": true,
+                            //             "avatar": sessionManager && sessionManager.currentUser ?
+                            //                      sessionManager.currentUser.username.charAt(0).toUpperCase() : "我"
+                            //         })
+                            //         messagesModel.append({
+                            //             "sender": "赵雷",
+                            //             "content": "我觉得这个方案很好，能够更好地满足用户需求。大家有什么其他想法吗？",
+                            //             "time": "10:38",
+                            //             "isOwn": false,
+                            //             "avatar": "赵"
+                            //         })
 
-                                    // 自动滚动到底部显示最新消息
-                                    Qt.callLater(function() {
-                                        messagesList.positionViewAtEnd()
-                                    })
-                                }
-                            }
+                            //         // 自动滚动到底部显示最新消息
+                            //         Qt.callLater(function() {
+                            //             messagesList.positionViewAtEnd()
+                            //         })
+                            //     }
+                            // }
                         }
                     }
                 }
@@ -1088,7 +1191,7 @@ Rectangle {
                     id: horizontalSplitter
                     Layout.fillWidth: true
                     Layout.preferredHeight: 6
-                    color: themeManager.currentTheme.borderColor
+                    color: getThemeColor("borderColor", "#e0e0e0")
 
                     // 添加视觉指示器
                     Rectangle {
@@ -1096,7 +1199,7 @@ Rectangle {
                         width: 40
                         height: 2
                         radius: 1
-                        color: themeManager.currentTheme.textTertiaryColor
+                        color: getThemeColor("textTertiaryColor", "#999999")
                         opacity: parent.parent.hovered ? 0.8 : 0.4
 
                         Behavior on opacity {
@@ -1163,8 +1266,8 @@ Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumHeight: 120
-                    color: themeManager.currentTheme.surfaceColor
-                    border.color: themeManager.currentTheme.borderColor
+                    color: getThemeColor("surfaceColor", "#ffffff")
+                    border.color: getThemeColor("borderColor", "#e0e0e0")
                     border.width: 1
 
                     ColumnLayout {
@@ -1172,18 +1275,18 @@ Rectangle {
                         anchors.margins: 10
                         spacing: 8
 
-                        // 工具栏
-                        RowLayout {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 30
-                            spacing: 8
-
-                            Button {
-                                Layout.preferredWidth: 30
+                                                    // 工具栏
+                            RowLayout {
+                                Layout.fillWidth: true
                                 Layout.preferredHeight: 30
+                                spacing: 8
 
-                                background: Rectangle {
-                                    color: parent.hovered ? themeManager.currentTheme.borderColor : "transparent"
+                                Button {
+                                    Layout.preferredWidth: 30
+                                    Layout.preferredHeight: 30
+
+                                    background: Rectangle {
+                                        color: parent.hovered ? getThemeColor("borderColor", "#e0e0e0") : "transparent"
                                     radius: 15
                                 }
 
@@ -1779,7 +1882,7 @@ Rectangle {
 
                 Text {
                     anchors.centerIn: parent
-                    text: model.name.charAt(0)
+                    text: (model.name || model.username || "U").charAt(0).toUpperCase()
                     color: "white"
                     font.pixelSize: 14
                     font.weight: Font.Bold
@@ -2599,6 +2702,8 @@ Rectangle {
         themeManager: mainPage.themeManager
         networkClient: ChatNetworkClient
         messageDialog: mainPage.messageDialog
+        friendRequests: mainPage.friendRequests
+        isLoadingRequests: mainPage.isLoadingRequests
 
         onUserSelected: function(userInfo) {
             // 用户选择了某个用户，可以在这里处理
@@ -2608,10 +2713,6 @@ Rectangle {
         onFriendRequestSent: function(userInfo) {
             // 好友请求已发送
             messageDialog.showSuccess("请求已发送", "好友请求已发送给 " + (userInfo.display_name || userInfo.username))
-        }
-        
-        onViewUserDetail: function(userInfo) {
-            showUserDetail(userInfo)
         }
         
         onAddFriendRequest: function(userInfo) {
@@ -2962,20 +3063,118 @@ Rectangle {
 
         function onFriendListReceived(friends) {
             // 处理好友列表更新
-            // Friend list received
-            // 这里可以更新好友列表UI
+            console.log("=== 收到好友列表更新 ===")
+            console.log("好友列表:", JSON.stringify(friends))
+            console.log("好友列表长度:", friends ? friends.length : 0)
+            
+            if (!friends || friends.length === 0) {
+                console.warn("好友列表为空，可能的原因:")
+                console.warn("1. 服务器端friendships表中没有好友关系记录")
+                console.warn("2. 好友关系状态不是'accepted'")
+                console.warn("3. AcceptFriendRequest存储过程没有正确创建好友关系")
+            }
+            
+            // 更新FriendGroupManager中的好友数据
+            if (FriendGroupManager && typeof FriendGroupManager.handleFriendListReceived === 'function') {
+                console.log("调用FriendGroupManager.handleFriendListReceived")
+                FriendGroupManager.handleFriendListReceived(friends)
+            } else {
+                console.error("FriendGroupManager不可用或handleFriendListReceived方法不存在")
+            }
+            
+            // 更新本地好友列表模型（用于其他显示）
+            friendsModel.clear()
+            for (var i = 0; i < friends.length; i++) {
+                var friend = friends[i]
+                console.log("处理好友:", friend.username, "ID:", friend.friend_id)
+                friendsModel.append({
+                    "id": friend.friend_id || friend.id,
+                    "username": friend.username,
+                    "display_name": friend.display_name,
+                    "avatar_url": friend.avatar_url,
+                    "online_status": friend.online_status,
+                    "note": friend.note,
+                    "accepted_at": friend.accepted_at,
+                    "isOnline": friend.online_status === "online"
+                })
+            }
+            
+            // 强制刷新UI，确保数据更新
+            var uiRefreshTimer = Qt.createQmlObject('import QtQuick 2.15; Timer { interval: 100; repeat: false; running: true }', mainPage, "uiRefreshTimer")
+            uiRefreshTimer.triggered.connect(function() {
+                console.log("强制刷新UI - 好友列表更新")
+                // 强制触发属性更新
+                if (FriendGroupManager) {
+                    FriendGroupManager.refreshData()
+                }
+            })
         }
-
+        
+        function onFriendGroupsReceived(groups) {
+            // 处理好友分组更新
+            console.log("收到好友分组:", JSON.stringify(groups))
+            
+            // 更新FriendGroupManager中的分组数据
+            if (FriendGroupManager && typeof FriendGroupManager.handleFriendGroupsReceived === 'function') {
+                FriendGroupManager.handleFriendGroupsReceived(groups)
+            }
+            
+            // 强制刷新UI，确保数据更新
+            var uiRefreshTimer = Qt.createQmlObject('import QtQuick 2.15; Timer { interval: 100; repeat: false; running: true }', mainPage, "uiRefreshTimer2")
+            uiRefreshTimer.triggered.connect(function() {
+                console.log("强制刷新UI - 好友分组更新")
+                // 强制触发属性更新
+                if (FriendGroupManager) {
+                    FriendGroupManager.refreshData()
+                }
+            })
+        }
+        
         function onFriendRequestReceived(request) {
             // 处理收到的好友请求
-            // Friend request received
-            // 这里可以显示好友请求通知
+            console.log("收到好友请求通知:", JSON.stringify(request))
+            
+            // 显示好友请求通知
+            if (request && request.notification_type === "friend_request") {
+                var requesterName = request.from_display_name || request.from_username || "未知用户"
+                var message = request.message || "请求添加您为好友"
+                
+                messageDialog.showInfo("新的好友请求", 
+                    requesterName + " 想添加您为好友\n\n消息: " + message)
+                
+                // 自动刷新好友请求列表
+                refreshFriendRequests()
+            }
         }
 
         function onFriendAdded(friendInfo) {
             // 处理好友添加成功
             // Friend added
             messageDialog.showSuccess("好友添加成功", "已成功添加好友")
+        }
+        
+        function onFriendRequestResponded(success, message) {
+            console.log("=== 收到好友请求响应 ===")
+            console.log("当前时间:", new Date().toISOString())
+            console.log("成功状态:", success)
+            console.log("响应消息:", message)
+            
+            if (success) {
+                console.log("好友请求处理成功，立即刷新好友数据")
+                // 立即刷新好友数据，不使用延迟
+                refreshFriendData()
+                refreshFriendRequests()
+            } else {
+                console.log("好友请求处理失败:", message)
+            }
+            
+            console.log("=== 好友请求响应处理完成 ===")
+        }
+        
+        function onFriendListUpdated() {
+            console.log("=== 收到好友列表更新信号，自动刷新好友数据 ===")
+            console.log("当前时间:", new Date().toISOString())
+            refreshFriendData()
         }
     }
 
@@ -3153,32 +3352,124 @@ Rectangle {
         }
     }
 
-    // 组件初始化
-    Component.onCompleted: {
-        // MainPage loaded successfully
-
-        // 初始化ChatNetworkClient
-        if (ChatNetworkClient) {
-            // ChatNetworkClient初始化在C++端处理
-            // ChatNetworkClient available
+    // 好友请求响应处理函数
+    function onFriendRequestAccepted(requestId, acceptedByUserId, acceptedByUsername, acceptedByDisplayName, note, groupName, timestamp) {
+        // 处理好友请求被接受的通知
+        console.log("=== 收到好友请求被接受通知 ===")
+        console.log("当前时间:", new Date().toISOString())
+        console.log("请求ID:", requestId)
+        console.log("接受者用户ID:", acceptedByUserId)
+        console.log("接受者用户名:", acceptedByUsername)
+        console.log("接受者显示名:", acceptedByDisplayName)
+        console.log("备注:", note)
+        console.log("分组名称:", groupName)
+        console.log("时间戳:", timestamp)
+        
+        // 显示通知
+        var acceptedByName = acceptedByDisplayName || acceptedByUsername || "未知用户"
+        var message = acceptedByName + " 已接受您的好友请求"
+        if (note && note.trim() !== "") {
+            message += "\n备注: " + note
         }
-
-        // 连接认证管理器信号
-        if (authManager) {
-            authManager.loginSucceeded.connect(function(user) {
-                // User logged in
-                // 用户登录成功后，确保ChatNetworkClient已初始化
-                if (ChatNetworkClient) {
-                    // ChatNetworkClient ready after login
-                }
-            })
+        if (groupName && groupName.trim() !== "") {
+            message += "\n分组: " + groupName
         }
         
-        // 预创建窗口（如果需要的话）
-        // Qt.callLater(function() {
-        //     createUserDetailWindow()
-        //     createAddFriendWindow()
-        // })
+        console.log("显示通知消息:", message)
+        messageDialog.showSuccess("好友请求已接受", message)
+        
+        // 刷新好友列表和好友请求列表
+        console.log("开始刷新好友数据...")
+        refreshFriendData()
+        console.log("开始刷新好友请求列表...")
+        refreshFriendRequests()
+        console.log("=== 好友请求接受处理完成 ===")
+    }
+    
+    function onFriendRequestRejected(requestId, rejectedByUserId, rejectedByUsername, rejectedByDisplayName, timestamp) {
+        // 处理好友请求被拒绝的通知
+        console.log("收到好友请求被拒绝通知:", requestId, rejectedByUsername)
+        
+        // 显示通知
+        var rejectedByName = rejectedByDisplayName || rejectedByUsername || "未知用户"
+        var message = rejectedByName + " 已拒绝您的好友请求"
+        
+        messageDialog.showWarning("好友请求被拒绝", message)
+        
+        // 刷新好友请求列表
+        refreshFriendRequests()
+    }
+    
+    function onFriendRequestIgnored(requestId, ignoredByUserId, ignoredByUsername, ignoredByDisplayName, timestamp) {
+        // 处理好友请求被忽略的通知
+        console.log("收到好友请求被忽略通知:", requestId, ignoredByUsername)
+        
+        // 显示通知
+        var ignoredByName = ignoredByDisplayName || ignoredByUsername || "未知用户"
+        var message = ignoredByName + " 已忽略您的好友请求"
+        
+        messageDialog.showInfo("好友请求被忽略", message)
+        
+        // 刷新好友请求列表
+        refreshFriendRequests()
+    }
+    
+    function onFriendRequestNotification(requestId, fromUserId, fromUsername, fromDisplayName, notificationType, message, timestamp, isOfflineMessage) {
+        // 处理好友请求通知（包括离线消息）
+        console.log("收到好友请求通知:", requestId, fromUsername, notificationType, isOfflineMessage ? "离线消息" : "实时消息")
+        
+        // 显示通知
+        var fromName = fromDisplayName || fromUsername || "未知用户"
+        var notificationTitle = isOfflineMessage ? "离线好友请求通知" : "好友请求通知"
+        
+        messageDialog.showInfo(notificationTitle, fromName + ": " + message)
+        
+        // 刷新好友请求列表
+        refreshFriendRequests()
+        
+        // 如果是接受通知，也刷新好友列表
+        if (notificationType === "accepted") {
+            refreshFriendData()
+        }
+    }
+    
+    function onFriendRequestsReceived(requests) {
+        // 处理好友请求列表更新
+        friendRequests = requests || []
+        isLoadingRequests = false
+    }
+    
+
+
+    // 好友请求响应处理函数
+    function onFriendRequestResponded(success, message) {
+        if (success) {
+            // 立即刷新好友数据，不使用延迟
+            refreshFriendData()
+            refreshFriendRequests()
+        }
+    }
+
+    // 好友列表更新处理函数
+    function onFriendListUpdated() {
+        refreshFriendData()
+    }
+
+    // 组件初始化
+    Component.onCompleted: {
+
+        
+        // 连接ChatNetworkClient信号
+        if (ChatNetworkClient) {
+            ChatNetworkClient.friendRequestResponded.connect(onFriendRequestResponded)
+            ChatNetworkClient.friendListUpdated.connect(onFriendListUpdated)
+            ChatNetworkClient.friendRequestsReceived.connect(onFriendRequestsReceived)
+        }
+        
+        // 检查是否已经有好友数据，如果没有则发送请求
+        if (FriendGroupManager && FriendGroupManager.friendGroups && FriendGroupManager.friendGroups.length <= 1) { // 只有默认分组
+            refreshFriendData()
+        }
     }
     
     // 组件销毁时清理窗口
@@ -3195,11 +3486,11 @@ Rectangle {
         userDetailWindowVisible = false
         
         // 清理所有动态创建的添加好友窗口
-        for (var i = activeAddFriendWindows.length - 1; i >= 0; i--) {
-            var window = activeAddFriendWindows[i]
-            if (window) {
-                window.close()
-                window.destroy()
+        for (var j = activeAddFriendWindows.length - 1; j >= 0; j--) {
+            var friendWindow = activeAddFriendWindows[j]
+            if (friendWindow) {
+                friendWindow.close()
+                friendWindow.destroy()
             }
         }
         activeAddFriendWindows = []

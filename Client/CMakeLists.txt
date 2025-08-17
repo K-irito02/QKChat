@@ -5,7 +5,7 @@ project(Client VERSION 0.1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick Network Sql Core5Compat)
+find_package(Qt6 REQUIRED COMPONENTS Quick Network Sql Core5Compat Concurrent)
 
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -83,7 +83,7 @@ set_target_properties(appClient PROPERTIES
 )
 
 target_link_libraries(appClient
-    PRIVATE Qt6::Quick Qt6::Network Qt6::Sql Qt6::Core5Compat
+    PRIVATE Qt6::Quick Qt6::Network Qt6::Sql Qt6::Core5Compat Qt6::Concurrent
 )
 
 include(GNUInstallDirs)

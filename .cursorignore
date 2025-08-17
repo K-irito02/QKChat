@@ -75,12 +75,14 @@ MCP/
 .augment/
 .windsurfrules
 .codebuddy/
+.kiro/
 .gitignore
 
 # ===== 其它文件 =====
-问题记录/
+# 问题记录/
 优化建议/
 .tasks/
 笔记/
 docs/
 开发报告/
+日志文件夹/

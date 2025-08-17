@@ -43,9 +43,8 @@ Makefile
 *.exp
 
 # ===== 日志文件 =====
-logs/
-*.log
-控制台.log
+Client/logs/
+Server/logs/
 
 # ===== 数据库文件 =====
 *.db
@@ -96,6 +95,7 @@ MCP/
 .cursor/
 .windsurfrules
 .codebuddy/
+.kiro/
 
 # ===== 其它文件 =====
 问题记录/
@@ -104,3 +104,4 @@ MCP/
 笔记/
 docs/
 开发报告/
+日志文件夹/

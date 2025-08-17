@@ -146,6 +146,12 @@ public:
     QString clientId() const;
     
     /**
+     * @brief 获取用户ID
+     * @return 用户ID
+     */
+    qint64 userId() const;
+    
+    /**
      * @brief 检查是否已认证
      * @return 是否已认证
      */
@@ -161,8 +167,9 @@ public:
      * @brief 设置认证状态
      * @param authenticated 是否已认证
      * @param token 会话令牌
+     * @param userId 用户ID
      */
-    void setAuthenticated(bool authenticated, const QString& token = QString());
+    void setAuthenticated(bool authenticated, const QString& token = QString(), qint64 userId = -1);
 
     /**
      * @brief 发送聊天请求
@@ -170,6 +177,9 @@ public:
      * @return 请求ID
      */
     QString sendChatRequest(const QJsonObject &request);
+
+    // 设置客户端ID
+    void setClientId(const QString& clientId);
 
 signals:
     /**
@@ -351,6 +361,7 @@ private:
     QString _clientId;
     QString _sessionToken;
     bool _isAuthenticated;
+    qint64 _userId;
     
     static int s_requestCounter;
     static QMutex s_counterMutex; // 保护静态计数器的互斥锁

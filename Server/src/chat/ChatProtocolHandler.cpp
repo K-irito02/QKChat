@@ -161,6 +161,9 @@ QJsonObject ChatProtocolHandler::handleFriendOperations(const QJsonObject& reque
     } else if (action == "friend_group_move") {
         // 处理移动好友到分组
         result = handleMoveFriendToGroup(request, userId);
+    } else if (action == "delete_friend_request_notification") {
+        // 处理删除好友请求通知
+        result = handleDeleteFriendRequestNotification(request, userId);
     } else {
         LOG_ERROR(QString("Unknown friend action: %1").arg(action));
         result = createErrorResponse(requestId, action, "INVALID_ACTION", "Unknown friend action: " + action);
@@ -208,29 +211,51 @@ QJsonObject ChatProtocolHandler::handleFriendRequest(const QJsonObject& request,
     }
 }
 
-QJsonObject ChatProtocolHandler::handleFriendResponse(const QJsonObject& request, qint64 userId)
+QJsonObject ChatProtocolHandler::handleFriendResponse(const QJsonObject& requestData, qint64 userId)
 {
-    QString requestId = request["request_id"].toString();
-    QString action = request["action"].toString();
+    QString requestId = requestData["request_id"].toString();
+    QString action = requestData["action"].toString();
     
-    // 验证必需参数
-    QString errorMessage;
-    if (!validateRequest(request, {"friendship_id", "accept"}, errorMessage)) {
-        return createErrorResponse(requestId, action, "INVALID_PARAMS", errorMessage);
-    }
+    LOG_INFO("=== 处理好友请求响应 ===");
+    LOG_INFO(QString("原始请求数据: %1").arg(QString::fromUtf8(QJsonDocument(requestData).toJson(QJsonDocument::Compact))));
+    LOG_INFO(QString("用户ID: %1").arg(userId));
+    LOG_INFO(QString("请求ID: %1").arg(requestId));
+    LOG_INFO(QString("动作: %1").arg(action));
     
-    qint64 friendshipId = request["friendship_id"].toVariant().toLongLong();
-    bool accept = request["accept"].toBool();
+    // 从friend_request_id字段读取数据库的friend request ID
+    QJsonValue friendRequestIdValue = requestData["friend_request_id"];
+    LOG_INFO(QString("friend_request_id原始值: %1, 类型: %2").arg(friendRequestIdValue.toString()).arg(friendRequestIdValue.type()));
     
-    bool success = _friendService->respondToFriendRequest(userId, friendshipId, accept);
+    qint64 friendRequestId = friendRequestIdValue.toVariant().toLongLong();
+    LOG_INFO(QString("转换后的friendRequestId: %1").arg(friendRequestId));
+    
+    bool accept = requestData["accept"].toBool();
+    LOG_INFO(QString("accept值: %1").arg(accept));
+    
+    QString note = requestData["note"].toString();
+    QString groupName = requestData["group_name"].toString();
+    LOG_INFO(QString("备注: '%1', 分组: '%2'").arg(note).arg(groupName));
+    
+    // 调用FriendService处理好友请求响应
+    bool success = _friendService->respondToFriendRequest(userId, friendRequestId, accept, note, groupName);
+    
+    LOG_INFO(QString("FriendService响应结果: %1").arg(success ? "成功" : "失败"));
     
     if (success) {
         QJsonObject data;
-        data["friendship_id"] = friendshipId;
+        data["request_id"] = friendRequestId;
         data["accepted"] = accept;
         data["message"] = accept ? "Friend request accepted" : "Friend request rejected";
+        if (!note.isEmpty()) {
+            data["note"] = note;
+        }
+        if (!groupName.isEmpty()) {
+            data["group_name"] = groupName;
+        }
+        LOG_INFO(QString("返回成功响应: %1").arg(QString::fromUtf8(QJsonDocument(data).toJson(QJsonDocument::Compact))));
         return createSuccessResponse(requestId, action, data);
     } else {
+        LOG_ERROR("返回失败响应: 操作失败");
         return createErrorResponse(requestId, action, "OPERATION_FAILED", "Failed to respond to friend request");
     }
 }
@@ -240,13 +265,24 @@ QJsonObject ChatProtocolHandler::handleGetFriendList(const QJsonObject& request,
     QString requestId = request["request_id"].toString();
     QString action = request["action"].toString();
     
+    LOG_INFO(QString("=== 处理获取好友列表请求 ==="));
+    LOG_INFO(QString("请求ID: %1, 用户ID: %2, 动作: %3").arg(requestId).arg(userId).arg(action));
+    LOG_INFO(QString("当前时间: %1").arg(QDateTime::currentDateTime().toString(Qt::ISODate)));
+    
     QJsonArray friendList = _friendService->getFriendList(userId);
+    
+    LOG_INFO(QString("好友列表查询完成，返回 %1 个好友").arg(friendList.size()));
     
     QJsonObject data;
     data["friends"] = friendList;
     data["count"] = friendList.size();
     
-    return createSuccessResponse(requestId, action, data);
+    // 修复：将action改为friend_list_response以匹配客户端期望
+    QJsonObject response = createSuccessResponse(requestId, "friend_list_response", data);
+    
+    LOG_INFO(QString("好友列表响应已创建，准备发送给用户 %1").arg(userId));
+    
+    return response;
 }
 
 QJsonObject ChatProtocolHandler::handleGetFriendRequests(const QJsonObject& request, qint64 userId)
@@ -260,7 +296,8 @@ QJsonObject ChatProtocolHandler::handleGetFriendRequests(const QJsonObject& requ
     data["requests"] = requestList;
     data["count"] = requestList.size();
     
-    return createSuccessResponse(requestId, action, data);
+    // 修复：将action改为friend_requests_response以匹配客户端期望
+    return createSuccessResponse(requestId, "friend_requests_response", data);
 }
 
 QJsonObject ChatProtocolHandler::handleRemoveFriend(const QJsonObject& request, qint64 userId)
@@ -369,6 +406,8 @@ QJsonObject ChatProtocolHandler::handleSearchUsers(const QJsonObject& request, q
     return createSuccessResponse(requestId, action, data);
 }
 
+
+
 QJsonObject ChatProtocolHandler::handleUpdateFriendNote(const QJsonObject& request, qint64 userId)
 {
     QString requestId = request["request_id"].toString();
@@ -459,15 +498,41 @@ QJsonObject ChatProtocolHandler::handleHeartbeat(const QJsonObject& request, qin
     QString requestId = request["request_id"].toString();
     QString action = request["action"].toString();
     QString clientId = request["client_id"].toString();
+    qint64 requestUserId = request["user_id"].toVariant().toLongLong();
 
+    LOG_INFO("=== 处理心跳请求 ===");
+    LOG_INFO(QString("当前时间: %1").arg(QDateTime::currentDateTime().toString(Qt::ISODate)));
+    LOG_INFO(QString("请求ID: %1").arg(requestId));
+    LOG_INFO(QString("会话用户ID: %1").arg(userId));
+    LOG_INFO(QString("请求中的用户ID: %1").arg(requestUserId));
+    LOG_INFO(QString("客户端ID: %1").arg(clientId));
+
+    // 验证用户ID
+    if (userId <= 0) {
+        LOG_ERROR("无效的会话用户ID，无法处理心跳");
+        return createErrorResponse(requestId, action, "INVALID_USER", "Invalid session user ID");
+    }
+
+    // 如果请求中包含用户ID，验证是否匹配
+    if (requestUserId > 0 && requestUserId != userId) {
+        LOG_WARNING(QString("用户ID不匹配: 会话=%1, 请求=%2").arg(userId).arg(requestUserId));
+    }
+
+    // 更新用户在线状态
     bool success = _statusService->updateHeartbeat(userId, clientId);
 
     if (success) {
+        LOG_INFO(QString("心跳更新成功: 用户ID=%1, 客户端ID=%2").arg(userId).arg(clientId));
+        
         QJsonObject data;
         data["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
         data["message"] = "Heartbeat received";
+        data["user_id"] = userId;
+        data["client_id"] = clientId;
+        
         return createSuccessResponse(requestId, action, data);
     } else {
+        LOG_ERROR(QString("心跳更新失败: 用户ID=%1, 客户端ID=%2").arg(userId).arg(clientId));
         return createErrorResponse(requestId, action, "OPERATION_FAILED", "Failed to update heartbeat");
     }
 }
@@ -779,7 +844,8 @@ QJsonObject ChatProtocolHandler::handleGetFriendGroups(const QJsonObject& reques
     data["groups"] = groups;
     data["count"] = groups.size();
 
-    return createSuccessResponse(requestId, action, data);
+    // 修复：将action改为friend_groups_response以匹配客户端期望
+    return createSuccessResponse(requestId, "friend_groups_response", data);
 }
 
 QJsonObject ChatProtocolHandler::handleCreateFriendGroup(const QJsonObject& request, qint64 userId)
@@ -879,5 +945,30 @@ QJsonObject ChatProtocolHandler::handleMoveFriendToGroup(const QJsonObject& requ
         return createSuccessResponse(requestId, action, data);
     } else {
         return createErrorResponse(requestId, action, "MOVE_FAILED", "Failed to move friend to group");
+    }
+}
+
+QJsonObject ChatProtocolHandler::handleDeleteFriendRequestNotification(const QJsonObject& request, qint64 userId)
+{
+    QString requestId = request["request_id"].toString();
+    QString action = request["action"].toString();
+    
+    // 验证必需参数
+    QString errorMessage;
+    if (!validateRequest(request, {"request_id"}, errorMessage)) {
+        return createErrorResponse(requestId, action, "INVALID_PARAMS", errorMessage);
+    }
+    
+    qint64 friendRequestId = request["request_id"].toVariant().toLongLong();
+    
+    bool success = _friendService->deleteFriendRequestNotification(userId, friendRequestId);
+    
+    if (success) {
+        QJsonObject data;
+        data["request_id"] = friendRequestId;
+        data["message"] = "Friend request notification deleted successfully";
+        return createSuccessResponse(requestId, action, data);
+    } else {
+        return createErrorResponse(requestId, action, "OPERATION_FAILED", "Failed to delete friend request notification");
     }
 }

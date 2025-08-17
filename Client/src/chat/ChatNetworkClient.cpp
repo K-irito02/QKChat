@@ -1,9 +1,11 @@
 #include "ChatNetworkClient.h"
 #include "../auth/NetworkClient.h"
+#include "../auth/AuthManager.h"
 #include "../utils/Logger.h"
 #include <QJsonDocument>
 #include <QUuid>
 #include <QDateTime>
+#include <QThread>
 
 // 静态成员初始化
 ChatNetworkClient* ChatNetworkClient::s_instance = nullptr;
@@ -36,6 +38,15 @@ ChatNetworkClient* ChatNetworkClient::instance()
         }
     }
     return s_instance;
+}
+
+bool ChatNetworkClient::isAuthenticated() const
+{
+    QMutexLocker locker(&_mutex);
+    if (_networkClient) {
+        return _networkClient->isAuthenticated();
+    }
+    return false;
 }
 
 bool ChatNetworkClient::initialize()
@@ -87,13 +98,33 @@ void ChatNetworkClient::sendFriendRequest(const QString& userIdentifier, const Q
     sendRequest("friend_request", data);
 }
 
-void ChatNetworkClient::respondToFriendRequest(qint64 friendshipId, bool accept)
+void ChatNetworkClient::respondToFriendRequest(qint64 requestId, bool accept)
 {
     QJsonObject data;
-    data["friendship_id"] = friendshipId;
     data["accept"] = accept;
+    data["friend_request_id"] = requestId;  // 使用friend_request_id避免与网络request_id冲突
     
     sendRequest("friend_response", data);
+}
+
+void ChatNetworkClient::respondToFriendRequestWithSettings(qint64 requestId, bool accept, const QString& note, const QString& groupName)
+{
+    QJsonObject data;
+    data["accept"] = accept;
+    data["friend_request_id"] = requestId;  // 使用friend_request_id避免与网络request_id冲突
+    data["note"] = note;
+    data["group_name"] = groupName;
+    
+    sendRequest("friend_response", data);
+}
+
+void ChatNetworkClient::ignoreFriendRequest(qint64 requestId)
+{
+    QJsonObject data;
+    data["request_id"] = requestId;
+    data["action"] = "ignore";
+    
+    sendRequest("friend_ignore", data);
 }
 
 void ChatNetworkClient::getFriendList()
@@ -104,6 +135,14 @@ void ChatNetworkClient::getFriendList()
 void ChatNetworkClient::getFriendRequests()
 {
     sendRequest("friend_requests");
+}
+
+void ChatNetworkClient::deleteFriendRequestNotification(qint64 requestId)
+{
+    QJsonObject data;
+    data["request_id"] = requestId;
+    
+    sendRequest("delete_friend_request_notification", data);
 }
 
 void ChatNetworkClient::removeFriend(qint64 friendId)
@@ -209,8 +248,21 @@ void ChatNetworkClient::getFriendsOnlineStatus()
 
 void ChatNetworkClient::sendHeartbeat()
 {
+    if (!_networkClient) {
+        return;
+    }
+    
+    if (!_networkClient->isConnected()) {
+        return;
+    }
+    
+    if (!_networkClient->isAuthenticated()) {
+        return;
+    }
+    
     QJsonObject data;
-    data["client_id"] = _networkClient ? _networkClient->clientId() : QString();
+    data["client_id"] = _networkClient->clientId();
+    data["user_id"] = _networkClient->userId();  // 添加用户ID
     
     sendRequest("heartbeat", data);
 }
@@ -329,7 +381,12 @@ void ChatNetworkClient::onHeartbeatTimer()
 {
     QMutexLocker locker(&_mutex);
 
-    if (_networkClient && _networkClient->isConnected()) {
+    if (!_networkClient) {
+        return;
+    }
+
+    // 修改条件：只要NetworkClient存在且已认证就发送心跳
+    if (_networkClient && _networkClient->isAuthenticated()) {
         sendHeartbeat();
     }
 }
@@ -337,12 +394,10 @@ void ChatNetworkClient::onHeartbeatTimer()
 void ChatNetworkClient::sendRequest(const QString& action, const QJsonObject& data)
 {
     if (!_networkClient) {
-        LOG_ERROR("NetworkClient not available for chat request");
         return;
     }
 
     if (!_networkClient->isConnected()) {
-        LOG_ERROR("NetworkClient not connected to server");
         return;
     }
 
@@ -354,20 +409,23 @@ void ChatNetworkClient::sendRequest(const QString& action, const QJsonObject& da
     // 添加会话令牌
     if (_networkClient->isAuthenticated()) {
         request["session_token"] = _networkClient->sessionToken();
-    } else {
-        LOG_WARNING("User not authenticated, no session token added");
     }
 
-    // 合并数据
+    // 合并数据，但保护friend_request_id字段不被覆盖
     for (auto it = data.begin(); it != data.end(); ++it) {
-        request[it.key()] = it.value();
+        // 不要覆盖friend_request_id字段，因为它包含数据库的friend request ID
+        if (it.key() != "friend_request_id") {
+            request[it.key()] = it.value();
+        }
+    }
+    
+    // 单独处理friend_request_id字段
+    if (data.contains("friend_request_id")) {
+        request["friend_request_id"] = data["friend_request_id"];
     }
 
     // 使用专门的聊天请求发送方法
-    QString requestId = _networkClient->sendChatRequest(request);
-    if (requestId.isEmpty()) {
-        LOG_ERROR("Failed to send chat request - sendChatRequest returned empty requestId");
-    }
+    _networkClient->sendChatRequest(request);
 }
 
 void ChatNetworkClient::handleFriendResponse(const QJsonObject& response)
@@ -378,7 +436,7 @@ void ChatNetworkClient::handleFriendResponse(const QJsonObject& response)
 
     if (action == "friend_request_response") {
         emit friendRequestSent(success, message);
-    } else if (action == "friend_response_response") {
+    } else if (action == "friend_response" || action == "friend_response_response") {
         emit friendRequestResponded(success, message);
     } else if (action == "friend_list_response") {
         if (success) {
@@ -441,6 +499,58 @@ void ChatNetworkClient::handleFriendResponse(const QJsonObject& response)
         qint64 friendId = response["data"]["friend_id"].toVariant().toLongLong();
         qint64 groupId = response["data"]["group_id"].toVariant().toLongLong();
         emit friendMovedToGroup(friendId, groupId, success);
+    } else if (action == "friend_request_accepted") {
+        // 处理好友请求被接受的通知
+        qint64 requestId = response["request_id"].toVariant().toLongLong();
+        qint64 acceptedByUserId = response["accepted_by_user_id"].toVariant().toLongLong();
+        QString acceptedByUsername = response["accepted_by_username"].toString();
+        QString acceptedByDisplayName = response["accepted_by_display_name"].toString();
+        QString note = response["note"].toString();
+        QString groupName = response["group_name"].toString();
+        QString timestamp = response["timestamp"].toString();
+        
+        // 发射好友请求被接受信号
+        emit friendRequestAccepted(requestId, acceptedByUserId, acceptedByUsername, 
+                                 acceptedByDisplayName, note, groupName, timestamp);
+    } else if (action == "friend_request_rejected") {
+        // 处理好友请求被拒绝的通知
+        qint64 requestId = response["request_id"].toVariant().toLongLong();
+        qint64 rejectedByUserId = response["rejected_by_user_id"].toVariant().toLongLong();
+        QString rejectedByUsername = response["rejected_by_username"].toString();
+        QString rejectedByDisplayName = response["rejected_by_display_name"].toString();
+        QString timestamp = response["timestamp"].toString();
+        
+        // 发射好友请求被拒绝信号
+        emit friendRequestRejected(requestId, rejectedByUserId, rejectedByUsername, 
+                                 rejectedByDisplayName, timestamp);
+    } else if (action == "friend_request_ignored") {
+        // 处理好友请求被忽略的通知
+        qint64 requestId = response["request_id"].toVariant().toLongLong();
+        qint64 ignoredByUserId = response["ignored_by_user_id"].toVariant().toLongLong();
+        QString ignoredByUsername = response["ignored_by_username"].toString();
+        QString ignoredByDisplayName = response["ignored_by_display_name"].toString();
+        QString timestamp = response["timestamp"].toString();
+        
+        // 发射好友请求被忽略信号
+        emit friendRequestIgnored(requestId, ignoredByUserId, ignoredByUsername, 
+                                ignoredByDisplayName, timestamp);
+    } else if (action == "friend_request_notification") {
+            // 处理好友请求通知（包括离线消息）
+            qint64 requestId = response["request_id"].toVariant().toLongLong();
+            QString fromUsername = response["from_username"].toString();
+            QString fromDisplayName = response["from_display_name"].toString();
+            QString notificationType = response["notification_type"].toString();
+            QString message = response["message"].toString();
+            QString timestamp = response["timestamp"].toString();
+            bool isOfflineMessage = response["is_offline_message"].toBool();
+
+            // 发射好友请求通知信号
+            emit friendRequestNotification(requestId, 0, fromUsername,
+                                         fromDisplayName, notificationType, message, timestamp, isOfflineMessage);
+    } else if (action == "friend_list_update") {
+        // 处理好友列表更新通知
+        // 自动刷新好友列表
+        getFriendList();
     }
 }
 
@@ -526,6 +636,10 @@ void ChatNetworkClient::handleNotification(const QJsonObject& notification)
         emit friendRequestReceived(notification);
     } else if (notificationType == "friend_added") {
         emit friendAdded(notification);
+    } else if (notificationType == "friend_list_update") {
+        // 自动刷新好友列表
+        getFriendList();
+        emit friendListUpdated();
     } else if (notificationType == "friend_status_changed") {
         qint64 friendId = notification["user_id"].toVariant().toLongLong();
         QString status = notification["status"].toString();

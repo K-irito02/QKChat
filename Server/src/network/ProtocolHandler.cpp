@@ -143,6 +143,7 @@ QJsonObject ProtocolHandler::handleLoginRequest(const QJsonObject &request, cons
             successResponse["user"] = user->toClientJson();
             successResponse["session_token"] = sessionToken;
             successResponse["device_id"] = deviceId;
+            successResponse["client_id"] = clientId;  // 添加客户端ID
             successResponse["expires_in"] = rememberMe ? 2592000 : 604800; // 30天或7天
             
             return successResponse;
@@ -325,11 +326,28 @@ QJsonObject ProtocolHandler::handleHeartbeatRequest(const QJsonObject &request, 
     QString requestId = request["request_id"].toString();
     QString action = request["action"].toString();
     
-    QJsonObject responseData;
-    responseData["timestamp"] = QDateTime::currentSecsSinceEpoch();
-    responseData["server_time"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    // 从请求中获取用户ID
+    qint64 userId = request["user_id"].toVariant().toLongLong();
     
-    return createSuccessResponse(requestId, action, responseData);
+    if (userId <= 0) {
+        LOG_ERROR(QString("Invalid user_id in heartbeat request: %1").arg(userId));
+        return createErrorResponse(requestId, action, "INVALID_USER_ID", "Invalid user_id in heartbeat request");
+    }
+    
+    // 检查聊天处理器是否可用
+    if (!_chatHandler) {
+        LOG_ERROR("ChatProtocolHandler instance is null");
+        return createErrorResponse(requestId, action, "SERVICE_UNAVAILABLE", "Chat service is not available");
+    }
+    
+    // 初始化聊天处理器（如果尚未初始化）
+    if (!_chatHandler->initialize()) {
+        LOG_ERROR("Chat service initialization failed");
+        return createErrorResponse(requestId, action, "SERVICE_UNAVAILABLE", "Chat service initialization failed");
+    }
+    
+    // 委托给聊天协议处理器处理心跳
+    return _chatHandler->handleChatRequest(request, "", userId);
 }
 
 QJsonObject ProtocolHandler::handleLogoutRequest(const QJsonObject &request, const QString &clientId, qint64 userId)

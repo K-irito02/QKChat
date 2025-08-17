@@ -467,13 +467,6 @@ void ClientHandler::processMessage(const QJsonObject &message)
     // Processing message
     LOG_INFO(QString("Action: %1, RequestID: %2, ClientState: %3").arg(action).arg(requestId).arg(static_cast<int>(_state)));
 
-    // 处理心跳消息
-    if (action == "heartbeat") {
-        // LOG_INFO removed
-        handleHeartbeat(message);
-        return;
-    }
-
     // 处理认证消息（包括可用性检查）
     if (action == "login" || action == "register" || action == "send_verification_code" || 
         action == "check_username" || action == "check_email") {
@@ -494,7 +487,7 @@ void ClientHandler::processMessage(const QJsonObject &message)
         return;
     }
 
-    // 处理已认证用户的消息
+    // 处理已认证用户的消息（包括心跳）
     // LOG_INFO removed
     emit messageReceived(message);
     
@@ -532,14 +525,6 @@ void ClientHandler::handleAuthRequest(const QJsonObject &message)
     }
 }
 
-void ClientHandler::handleHeartbeat(const QJsonObject &message)
-{
-    updateLastActivity();
-    sendHeartbeatResponse();
-
-
-}
-
 void ClientHandler::sendAuthResponse(bool success, const QString &message, const QJsonObject &userData)
 {
     QJsonObject response;
@@ -551,16 +536,6 @@ void ClientHandler::sendAuthResponse(bool success, const QString &message, const
     if (success && !userData.isEmpty()) {
         response["user_data"] = userData;
     }
-
-    sendMessage(response);
-}
-
-void ClientHandler::sendHeartbeatResponse()
-{
-    QJsonObject response;
-    response["action"] = "heartbeat_response";
-    response["timestamp"] = QDateTime::currentSecsSinceEpoch();
-    response["server_time"] = QDateTime::currentDateTime().toString(Qt::ISODate);
 
     sendMessage(response);
 }
@@ -638,4 +613,39 @@ void ClientHandler::emitAuthenticated(qint64 userId)
 void ClientHandler::emitMessageReceived(const QJsonObject &message)
 {
     emit messageReceived(message);
+}
+
+QString ClientHandler::clientId() const
+{
+    return _clientId;
+}
+
+qint64 ClientHandler::getCurrentUserId() const
+{
+    return _userId;
+}
+
+qint64 ClientHandler::userId() const
+{
+    return _userId;
+}
+
+QDateTime ClientHandler::lastActivity() const
+{
+    return _lastActivity;
+}
+
+QDateTime ClientHandler::connectTime() const
+{
+    return _connectTime;
+}
+
+ClientHandler::ClientState ClientHandler::state() const
+{
+    return _state;
+}
+
+bool ClientHandler::isAuthenticated() const
+{
+    return _state == Authenticated;
 }

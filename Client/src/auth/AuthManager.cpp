@@ -3,10 +3,12 @@
 #include "../utils/Validator.h"
 #include "../utils/Crypto.h"
 #include "../models/User.h"
+#include "../chat/ChatNetworkClient.h"
 #include <QJsonDocument>
 #include <QMutexLocker>
 #include <QThread>
 #include <QCoreApplication>
+#include <QTimer>
 
 // 静态成员初始化
 AuthManager* AuthManager::s_instance = nullptr;
@@ -385,8 +387,6 @@ void AuthManager::onNetworkConnectionStateChanged(NetworkClient::ConnectionState
 
 void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &response)
 {
-
-
     AuthResponse* authResponse = processAuthResponse(response);
 
     if (authResponse->success()) {
@@ -394,6 +394,7 @@ void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &r
         QJsonObject userData = response["user"].toObject();
         QString sessionToken = response["session_token"].toString();
         qint64 expiresIn = response["expires_in"].toVariant().toLongLong();
+        QString clientId = response["client_id"].toString();  // 获取服务器分配的client_id
         
         // 创建User对象
         User* user = new User(userData, this);
@@ -403,8 +404,16 @@ void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &r
         
         // 更新NetworkClient的认证状态
         if (_networkClient) {
-        
-            _networkClient->setAuthenticated(true, sessionToken);
+            // 传递用户ID给NetworkClient
+            _networkClient->setAuthenticated(true, sessionToken, user->id());
+            
+            // 保存服务器分配的client_id
+            if (!clientId.isEmpty()) {
+                _networkClient->setClientId(clientId);
+                LOG_INFO(QString("Client ID saved: %1").arg(clientId));
+            } else {
+                LOG_WARNING("Server did not provide client_id in login response");
+            }
         } else {
             LOG_ERROR("NetworkClient is null, cannot update authentication state");
         }
@@ -413,9 +422,18 @@ void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &r
         setAuthState(Idle);
         
         // 发送登录成功信号
-        emit loginSucceeded(user);
+                emit loginSucceeded(user);
+
+        // 登录成功后立即初始化ChatNetworkClient并发送好友列表请求
+        ChatNetworkClient* chatClient = ChatNetworkClient::instance();
+        if (chatClient && chatClient->initialize()) {
+            // 延迟一小段时间确保网络连接稳定
+            QTimer::singleShot(100, [chatClient]() {
+                chatClient->getFriendList();
+                chatClient->getFriendGroups();
+            });
+        }
         
-    
     } else {
         // 登录失败
         setAuthState(Idle);

@@ -18,7 +18,6 @@ MessageBubble 1.0 MessageBubble.qml
 # 添加好友相关组件
 UserSearchDialog 1.0 UserSearchDialog.qml
 UserSearchResultItem 1.0 UserSearchResultItem.qml
-UserDetailDialog 1.0 UserDetailDialog.qml
 AddFriendConfirmDialog 1.0 AddFriendConfirmDialog.qml
 
 # 分组管理相关组件

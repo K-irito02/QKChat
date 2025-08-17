@@ -32,6 +32,7 @@ NetworkClient::NetworkClient(QObject *parent)
     , _heartbeatTimer(nullptr)
     , _reconnectTimer(nullptr)
     , _isAuthenticated(false)
+    , _userId(-1)  // 初始化为-1，表示未认证
 {
     // NetworkClient constructor
     
@@ -792,6 +793,7 @@ void NetworkClient::processJsonResponse(const QJsonObject &response)
         
         // 心跳响应不需要特殊处理，只是确认连接正常
         // LOG_DEBUG removed
+        return; // 直接返回，避免重复处理
     } else if (action == "error") {
         // 处理错误响应
         QString errorCode = response["error"].toString();
@@ -910,6 +912,11 @@ QString NetworkClient::clientId() const
     return _clientId;
 }
 
+qint64 NetworkClient::userId() const
+{
+    return _userId;
+}
+
 bool NetworkClient::isAuthenticated() const
 {
     return _isAuthenticated;
@@ -920,22 +927,31 @@ QString NetworkClient::sessionToken() const
     return _sessionToken;
 }
 
-void NetworkClient::setAuthenticated(bool authenticated, const QString& token)
+void NetworkClient::setAuthenticated(bool authenticated, const QString& token, qint64 userId)
 {
     LOG_INFO(QString("Setting authentication state: %1").arg(authenticated ? "true" : "false"));
     
     _isAuthenticated = authenticated;
     if (authenticated && !token.isEmpty()) {
         _sessionToken = token;
-        LOG_INFO(QString("Session token set: %1").arg(token.left(10) + "..."));
+        _userId = userId;
+        LOG_INFO(QString("Session token set: %1, userId: %2").arg(token.left(10) + "...").arg(userId));
     } else if (!authenticated) {
         _sessionToken.clear();
+        _userId = -1;
         // LOG_INFO removed
     }
     
-    LOG_INFO(QString("Authentication state updated - isAuthenticated: %1, hasToken: %2")
+    LOG_INFO(QString("Authentication state updated - isAuthenticated: %1, hasToken: %2, userId: %3")
             .arg(_isAuthenticated ? "true" : "false")
-            .arg(_sessionToken.isEmpty() ? "false" : "true"));
+            .arg(_sessionToken.isEmpty() ? "false" : "true")
+            .arg(_userId));
+}
+
+void NetworkClient::setClientId(const QString& clientId)
+{
+    LOG_INFO(QString("Setting client ID: %1").arg(clientId));
+    _clientId = clientId;
 }
 
 

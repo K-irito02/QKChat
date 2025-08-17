@@ -73,13 +73,24 @@ public:
                                         const QString& groupName = QString());
 
     /**
-     * @brief 响应好友请求
+     * @brief 响应好友请求（带备注和分组设置）
      * @param userId 当前用户ID
-     * @param friendshipId 好友关系ID
+     * @param requestId 好友请求ID
      * @param accept 是否接受
+     * @param note 备注名称
+     * @param groupName 分组名称
      * @return 是否成功
      */
-    bool respondToFriendRequest(qint64 userId, qint64 friendshipId, bool accept);
+    bool respondToFriendRequest(qint64 userId, qint64 requestId, bool accept, 
+                               const QString& note, const QString& groupName);
+
+    /**
+     * @brief 忽略好友请求
+     * @param userId 当前用户ID
+     * @param requestId 好友请求ID
+     * @return 是否成功
+     */
+    bool ignoreFriendRequest(qint64 userId, qint64 requestId);
 
     /**
      * @brief 获取好友列表
@@ -94,6 +105,14 @@ public:
      * @return 好友请求列表JSON数组
      */
     QJsonArray getPendingFriendRequests(qint64 userId);
+
+    /**
+     * @brief 删除好友请求通知
+     * @param userId 用户ID
+     * @param friendshipId 好友关系ID
+     * @return 是否成功
+     */
+    bool deleteFriendRequestNotification(qint64 userId, qint64 requestId);
 
     /**
      * @brief 删除好友
@@ -200,19 +219,19 @@ signals:
      * @brief 好友请求发送信号
      * @param fromUserId 发起用户ID
      * @param toUserId 目标用户ID
-     * @param friendshipId 好友关系ID
+     * @param requestId 好友请求ID
      * @param message 附加消息
      */
-    void friendRequestSent(qint64 fromUserId, qint64 toUserId, qint64 friendshipId, const QString& message);
+    void friendRequestSent(qint64 fromUserId, qint64 toUserId, qint64 requestId, const QString& message);
 
     /**
      * @brief 好友请求响应信号
-     * @param friendshipId 好友关系ID
-     * @param fromUserId 发起用户ID
-     * @param toUserId 目标用户ID
+     * @param requestId 好友请求ID
+     * @param requesterId 发起用户ID
+     * @param responderId 响应用户ID
      * @param accepted 是否接受
      */
-    void friendRequestResponded(qint64 friendshipId, qint64 fromUserId, qint64 toUserId, bool accepted);
+    void friendRequestResponded(qint64 requestId, qint64 requesterId, qint64 responderId, bool accepted);
 
     /**
      * @brief 好友删除信号
@@ -229,17 +248,30 @@ private:
      */
     qint64 findUserByIdentifier(const QString& identifier);
 
+
+
     /**
-     * @brief 创建好友请求通知
-     * @param friendshipId 好友关系ID
-     * @param fromUserId 发起用户ID
-     * @param toUserId 目标用户ID
-     * @param type 通知类型
-     * @param message 附加消息
+     * @brief 根据用户ID获取用户名
+     * @param userId 用户ID
+     * @return 用户名
+     */
+    QString getUsernameById(qint64 userId);
+
+    /**
+     * @brief 根据用户ID获取显示名
+     * @param userId 用户ID
+     * @return 显示名
+     */
+    QString getDisplayNameById(qint64 userId);
+
+    /**
+     * @brief 添加好友请求到离线队列
+     * @param userId 目标用户ID
+     * @param requestId 好友请求ID
+     * @param priority 优先级
      * @return 是否成功
      */
-    bool createFriendNotification(qint64 friendshipId, qint64 fromUserId, qint64 toUserId,
-                                 const QString& type, const QString& message = QString());
+    bool addToOfflineQueue(qint64 userId, qint64 requestId, int priority);
 
     /**
      * @brief 获取好友关系状态（内部方法，不加锁）

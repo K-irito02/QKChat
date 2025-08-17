@@ -3,6 +3,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDebug>
+#include <QThread>
 
 FriendGroupManager::FriendGroupManager(QObject *parent)
     : QObject(parent)
@@ -21,66 +22,10 @@ FriendGroupManager::FriendGroupManager(QObject *parent)
 void FriendGroupManager::loadFriendGroups()
 {
     setIsLoading(true);
-    // 这里应该通过ChatNetworkClient请求数据
-    // 暂时使用模拟数据
-    QTimer::singleShot(500, this, [this]() {
-        // 模拟从服务器获取的分组数据
-        QJsonArray mockGroups = QJsonArray{
-            QJsonObject{
-                {"id", 1},
-                {"group_name", "默认分组"},
-                {"group_order", 0},
-                {"friend_count", 3}
-            },
-            QJsonObject{
-                {"id", 2},
-                {"group_name", "同事"},
-                {"group_order", 1},
-                {"friend_count", 2}
-            },
-            QJsonObject{
-                {"id", 3},
-                {"group_name", "朋友"},
-                {"group_order", 2},
-                {"friend_count", 4}
-            }
-        };
-        
-        // 模拟好友列表数据
-        QJsonArray mockFriends = QJsonArray{
-            QJsonObject{
-                {"id", 1},
-                {"username", "alice"},
-                {"display_name", "Alice"},
-                {"avatar_url", ""},
-                {"status", "online"},
-                {"group_id", 1},
-                {"signature", "Hello world!"}
-            },
-            QJsonObject{
-                {"id", 2},
-                {"username", "bob"},
-                {"display_name", "Bob"},
-                {"avatar_url", ""},
-                {"status", "away"},
-                {"group_id", 1},
-                {"signature", "Busy coding..."}
-            },
-            QJsonObject{
-                {"id", 3},
-                {"username", "charlie"},
-                {"display_name", "Charlie"},
-                {"avatar_url", ""},
-                {"status", "offline"},
-                {"group_id", 2},
-                {"signature", ""}
-            }
-        };
-        
-        handleFriendGroupsReceived(mockGroups);
-        handleFriendListReceived(mockFriends);
-        setIsLoading(false);
-    });
+    // 通过ChatNetworkClient请求数据
+    // 这里应该调用网络请求，暂时保持为空等待网络客户端集成
+    // 注意：分组数据应该通过ChatNetworkClient.getFriendGroups()获取
+    setIsLoading(false);
 }
 
 void FriendGroupManager::createFriendGroup(const QString& groupName)
@@ -92,11 +37,8 @@ void FriendGroupManager::createFriendGroup(const QString& groupName)
     
     setIsLoading(true);
     // 这里应该调用ChatNetworkClient::createFriendGroup
-    // 暂时模拟操作
-    QTimer::singleShot(300, this, [this, groupName]() {
-        handleGroupCreated(groupName, true);
-        setIsLoading(false);
-    });
+    // 暂时保持为空等待网络客户端集成
+    setIsLoading(false);
 }
 
 void FriendGroupManager::renameFriendGroup(int groupId, const QString& newName)
@@ -108,33 +50,24 @@ void FriendGroupManager::renameFriendGroup(int groupId, const QString& newName)
     
     setIsLoading(true);
     // 这里应该调用ChatNetworkClient::renameFriendGroup
-    // 暂时模拟操作
-    QTimer::singleShot(300, this, [this, groupId, newName]() {
-        handleGroupRenamed(groupId, newName, true);
-        setIsLoading(false);
-    });
+    // 暂时保持为空等待网络客户端集成
+    setIsLoading(false);
 }
 
 void FriendGroupManager::deleteFriendGroup(int groupId)
 {
     setIsLoading(true);
     // 这里应该调用ChatNetworkClient::deleteFriendGroup
-    // 暂时模拟操作
-    QTimer::singleShot(300, this, [this, groupId]() {
-        handleGroupDeleted(groupId, true);
-        setIsLoading(false);
-    });
+    // 暂时保持为空等待网络客户端集成
+    setIsLoading(false);
 }
 
 void FriendGroupManager::moveFriendToGroup(int friendId, int groupId)
 {
     setIsLoading(true);
     // 这里应该调用ChatNetworkClient::moveFriendToGroup
-    // 暂时模拟操作
-    QTimer::singleShot(300, this, [this, friendId, groupId]() {
-        handleFriendMoved(friendId, groupId, true);
-        setIsLoading(false);
-    });
+    // 暂时保持为空等待网络客户端集成
+    setIsLoading(false);
 }
 
 void FriendGroupManager::expandGroup(const QString& groupId, bool expanded)
@@ -153,83 +86,37 @@ void FriendGroupManager::expandGroup(const QString& groupId, bool expanded)
 
 void FriendGroupManager::refreshData()
 {
-    loadFriendGroups();
-    loadRecentContacts();
-    loadChatGroups();
 
+    
+    // 重新处理现有的好友和分组数据
+    updateFriendGroupsData();
+    
     // 启动定时刷新
     if (!_refreshTimer->isActive()) {
         _refreshTimer->start();
     }
+    
+
 }
 
 void FriendGroupManager::loadRecentContacts()
 {
-    // 模拟最近联系数据
-    QTimer::singleShot(300, this, [this]() {
-        QJsonArray mockRecentContacts = QJsonArray{
-            QJsonObject{
-                {"id", 1},
-                {"name", "产品设计小组"},
-                {"last_message", "线上产品会议"},
-                {"last_time", "10:45"},
-                {"unread_count", 2},
-                {"type", "group"},
-                {"avatar", ""}
-            },
-            QJsonObject{
-                {"id", 2},
-                {"name", "王芳"},
-                {"last_message", "设计方案的修改已经发送给了，大家看看有没有问题"},
-                {"last_time", "10:15"},
-                {"unread_count", 0},
-                {"type", "friend"},
-                {"avatar", ""}
-            },
-            QJsonObject{
-                {"id", 3},
-                {"name", "李华"},
-                {"last_message", "新自然语文已经"},
-                {"last_time", "09:30"},
-                {"unread_count", 1},
-                {"type", "friend"},
-                {"avatar", ""}
-            }
-        };
-
-        handleRecentContactsReceived(mockRecentContacts);
-    });
+    // 通过ChatNetworkClient请求最近联系数据
+    // 暂时保持为空等待网络客户端集成
 }
 
 void FriendGroupManager::loadChatGroups()
 {
-    // 模拟群组数据
-    QTimer::singleShot(400, this, [this]() {
-        QJsonArray mockChatGroups = QJsonArray{
-            QJsonObject{
-                {"id", 1},
-                {"name", "前端开发组"},
-                {"description", "前端技术交流群"},
-                {"member_count", 8},
-                {"avatar", ""}
-            },
-            QJsonObject{
-                {"id", 2},
-                {"name", "公司团建群"},
-                {"description", "公司活动交流群"},
-                {"member_count", 12},
-                {"avatar", ""}
-            }
-        };
-
-        handleChatGroupsReceived(mockChatGroups);
-    });
+    // 通过ChatNetworkClient请求群组数据
+    // 暂时保持为空等待网络客户端集成
 }
 
 void FriendGroupManager::handleFriendGroupsReceived(const QJsonArray& groups)
 {
+
     _rawFriendGroups = groups;
     updateFriendGroupsData();
+
 }
 
 void FriendGroupManager::handleFriendListReceived(const QJsonArray& friends)
@@ -393,23 +280,88 @@ void FriendGroupManager::updateFriendGroupsData()
 {
     QVariantList groupList;
     
+    // 如果没有分组数据，创建一个默认分组
+    if (_rawFriendGroups.isEmpty()) {
+        QJsonObject defaultGroup;
+        defaultGroup["id"] = 1;
+        defaultGroup["group_name"] = "默认分组";
+        defaultGroup["group_order"] = 0;
+        defaultGroup["friend_count"] = _rawFriendList.size();
+        _rawFriendGroups.append(defaultGroup);
+    }
+    
     // 按分组组织好友数据
     for (const QJsonValue& groupValue : _rawFriendGroups) {
         QJsonObject group = groupValue.toObject();
+        int groupId = group["id"].toInt();
         
         // 查找该分组的好友
         QJsonArray groupMembers;
         for (const QJsonValue& friendValue : _rawFriendList) {
             QJsonObject friend_ = friendValue.toObject();
-            if (friend_["group_id"].toInt() == group["id"].toInt()) {
+            // 从服务器数据中获取group_id，如果没有则使用默认分组
+            int friendGroupId = 1; // 默认分组ID
+            if (friend_.contains("group_id") && !friend_["group_id"].isNull()) {
+                friendGroupId = friend_["group_id"].toInt();
+            }
+            
+            // 检查好友是否属于当前分组
+            if (friendGroupId == groupId) {
                 groupMembers.append(friend_);
+                qDebug() << "Added friend" << friend_["username"].toString() << "to group" << group["group_name"].toString();
             }
         }
         
-        groupList.append(createGroupData(group, groupMembers));
+        // 更新分组的friend_count
+        QJsonObject updatedGroup = group;
+        updatedGroup["friend_count"] = groupMembers.size();
+        
+        groupList.append(createGroupData(updatedGroup, groupMembers));
+    }
+    
+    // 处理没有分组的好友（group_id为null或0，或者group_id不在现有分组中）
+    QJsonArray ungroupedMembers;
+    for (const QJsonValue& friendValue : _rawFriendList) {
+        QJsonObject friend_ = friendValue.toObject();
+        bool foundGroup = false;
+        
+        // 获取好友的分组ID
+        int friendGroupId = 1; // 默认分组ID
+        if (friend_.contains("group_id") && !friend_["group_id"].isNull()) {
+            friendGroupId = friend_["group_id"].toInt();
+        }
+        
+        // 检查好友的分组ID是否在现有分组中
+        for (const QJsonValue& groupValue : _rawFriendGroups) {
+            QJsonObject group = groupValue.toObject();
+            int groupId = group["id"].toInt();
+            if (friendGroupId == groupId) {
+                foundGroup = true;
+                break;
+            }
+        }
+        
+        // 如果没有找到对应的分组，添加到未分组列表
+        if (!foundGroup) {
+            ungroupedMembers.append(friend_);
+            qDebug() << "Found ungrouped friend:" << friend_["username"].toString() << "with group_id:" << friendGroupId;
+        }
+    }
+    
+    // 如果有未分组的好友，创建一个默认分组
+    if (!ungroupedMembers.isEmpty()) {
+        QJsonObject defaultGroup;
+        defaultGroup["id"] = 1;
+        defaultGroup["group_name"] = "默认分组";
+        defaultGroup["group_order"] = 0;
+        defaultGroup["friend_count"] = ungroupedMembers.size();
+        
+        groupList.append(createGroupData(defaultGroup, ungroupedMembers));
+        qDebug() << "Created default group with" << ungroupedMembers.size() << "ungrouped friends";
     }
     
     _friendGroups = groupList;
+
     emit friendGroupsChanged();
 }
 
@@ -435,14 +387,20 @@ QVariantMap FriendGroupManager::createGroupData(const QJsonObject& group, const 
 QVariantMap FriendGroupManager::createMemberData(const QJsonObject& member)
 {
     QVariantMap memberData;
-    memberData["id"] = member["id"].toInt();
+    memberData["id"] = member["friend_id"].toVariant().toLongLong(); // 使用friend_id作为id
     memberData["username"] = member["username"].toString();
     memberData["name"] = member["display_name"].toString();
     memberData["displayName"] = member["display_name"].toString();
     memberData["avatar"] = member["avatar_url"].toString();
-    memberData["status"] = member["status"].toString();
-    memberData["signature"] = member["signature"].toString();
-    memberData["groupId"] = member["group_id"].toInt();
+    memberData["status"] = member["online_status"].toString(); // 使用online_status
+    memberData["signature"] = member["note"].toString(); // 使用note作为signature
+    
+    // 从服务器数据中获取group_id，如果没有则使用默认分组
+    if (member.contains("group_id") && !member["group_id"].isNull()) {
+        memberData["groupId"] = member["group_id"].toVariant().toLongLong();
+    } else {
+        memberData["groupId"] = 1; // 默认分组ID
+    }
     
     return memberData;
 }

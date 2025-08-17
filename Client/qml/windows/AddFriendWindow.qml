@@ -17,6 +17,10 @@ Window {
     property var themeManager
     property var messageDialog
     
+    // 分组管理
+    property var friendGroups: []
+    property bool isLoadingGroups: false
+    
     // 信号
     signal friendRequestConfirmed(var requestData)
     signal windowClosed()
@@ -224,8 +228,37 @@ Window {
                         id: groupComboBox
                         Layout.fillWidth: true
                         Layout.preferredHeight: 40
-                        model: [qsTr("默认分组"), qsTr("家人"), qsTr("朋友"), qsTr("同事"), qsTr("同学")]
+                        model: getGroupModel()
+                        editable: true
                         currentIndex: 0
+                        displayText: currentText || qsTr("选择或输入分组名称")
+                        
+                        // 获取分组模型，包含系统默认分组和用户自定义分组
+                        function getGroupModel() {
+                            var groups = [qsTr("默认分组")]
+                            
+                            // 添加系统默认分组
+                            var systemGroups = [qsTr("家人"), qsTr("朋友"), qsTr("同事"), qsTr("同学"), qsTr("重要联系人")]
+                            
+                            // 添加用户自定义分组
+                            if (friendGroups && friendGroups.length > 0) {
+                                for (var i = 0; i < friendGroups.length; i++) {
+                                    var group = friendGroups[i]
+                                    if (group && group.name && systemGroups.indexOf(group.name) === -1) {
+                                        groups.push(group.name)
+                                    }
+                                }
+                            }
+                            
+                            // 添加系统默认分组（如果用户还没有自定义这些分组）
+                            for (var j = 0; j < systemGroups.length; j++) {
+                                if (groups.indexOf(systemGroups[j]) === -1) {
+                                    groups.push(systemGroups[j])
+                                }
+                            }
+                            
+                            return groups
+                        }
                         
                         background: Rectangle {
                             color: "transparent"
@@ -285,20 +318,53 @@ Window {
                                     width: parent.width
                                     height: 36
                                     
-                                    Text {
+                                    RowLayout {
                                         anchors.fill: parent
                                         anchors.leftMargin: 12
                                         anchors.rightMargin: 12
-                                        text: modelData
-                                        color: themeManager.currentTheme.textPrimaryColor
-                                        font.pixelSize: 14
-                                        verticalAlignment: Text.AlignVCenter
+                                        spacing: 8
+                                        
+                                        Text {
+                                            text: modelData
+                                            color: themeManager.currentTheme.textPrimaryColor
+                                            font.pixelSize: 14
+                                            verticalAlignment: Text.AlignVCenter
+                                            Layout.fillWidth: true
+                                        }
+                                        
+                                        // 显示新分组标识
+                                        Text {
+                                            text: qsTr("新建")
+                                            color: themeManager.currentTheme.primaryColor
+                                            font.pixelSize: 10
+                                            font.weight: Font.Medium
+                                            visible: isNewGroup(modelData)
+                                        }
                                     }
                                     
                                     background: Rectangle {
                                         color: parent.highlighted ? Qt.rgba(themeManager.currentTheme.primaryColor.r,
                                                                           themeManager.currentTheme.primaryColor.g,
                                                                           themeManager.currentTheme.primaryColor.b, 0.1) : "transparent"
+                                    }
+                                    
+                                    // 检查是否为新分组
+                                    function isNewGroup(groupName) {
+                                        if (!groupName || groupName === qsTr("默认分组")) return false
+                                        
+                                        var systemGroups = [qsTr("家人"), qsTr("朋友"), qsTr("同事"), qsTr("同学"), qsTr("重要联系人")]
+                                        if (systemGroups.indexOf(groupName) !== -1) return false
+                                        
+                                        // 检查是否在用户自定义分组中
+                                        if (friendGroups && friendGroups.length > 0) {
+                                            for (var i = 0; i < friendGroups.length; i++) {
+                                                if (friendGroups[i] && friendGroups[i].name === groupName) {
+                                                    return false
+                                                }
+                                            }
+                                        }
+                                        
+                                        return true
                                     }
                                 }
                                 
@@ -423,11 +489,39 @@ Window {
                     }
                     
                     onClicked: {
+                        var selectedGroup = groupComboBox.currentText.trim()
+                        
+                        // 如果用户输入了新分组名称，创建新分组
+                        if (selectedGroup && selectedGroup !== qsTr("默认分组")) {
+                            var isNewGroup = true
+                            
+                            // 检查是否为系统默认分组
+                            var systemGroups = [qsTr("家人"), qsTr("朋友"), qsTr("同事"), qsTr("同学"), qsTr("重要联系人")]
+                            if (systemGroups.indexOf(selectedGroup) !== -1) {
+                                isNewGroup = false
+                            }
+                            
+                            // 检查是否在用户自定义分组中
+                            if (friendGroups && friendGroups.length > 0) {
+                                for (var i = 0; i < friendGroups.length; i++) {
+                                    if (friendGroups[i] && friendGroups[i].name === selectedGroup) {
+                                        isNewGroup = false
+                                        break
+                                    }
+                                }
+                            }
+                            
+                            // 如果是新分组，创建它
+                            if (isNewGroup) {
+                                createNewGroup(selectedGroup)
+                            }
+                        }
+                        
                         var requestData = {
                             target_user_id: targetUser && targetUser.id ? targetUser.id : null,
                             target_user_identifier: targetUser && (targetUser.user_id || targetUser.username) ? (targetUser.user_id || targetUser.username) : "",
                             remark: remarkField.text.trim(),
-                            group: groupComboBox.currentText,
+                            group: selectedGroup || qsTr("默认分组"),
                             message: messageField.text.trim()
                         }
                         
@@ -454,7 +548,53 @@ Window {
     function showAddFriend(user) {
         targetUser = user || {}
         clearFields()
+        loadFriendGroups()
         show()
         // 子组件方式，Qt自动处理层级，无需手动管理
+    }
+    
+    // 加载好友分组
+    function loadFriendGroups() {
+        isLoadingGroups = true
+        
+        // 这里应该从服务器或本地存储加载用户的好友分组
+        // 暂时保持为空等待网络客户端集成
+        friendGroups = []
+        
+        isLoadingGroups = false
+        
+        // 刷新分组模型
+        if (groupComboBox) {
+            groupComboBox.model = groupComboBox.getGroupModel()
+        }
+    }
+    
+    // 创建新分组
+    function createNewGroup(groupName) {
+        if (!groupName || groupName.trim() === "") return
+        
+        // 检查分组是否已存在
+        for (var i = 0; i < friendGroups.length; i++) {
+            if (friendGroups[i].name === groupName.trim()) {
+                return
+            }
+        }
+        
+        // 创建新分组
+        var newGroup = {
+            id: Date.now(), // 临时ID
+            name: groupName.trim(),
+            count: 0
+        }
+        
+        friendGroups.push(newGroup)
+        
+        // 刷新分组模型
+        if (groupComboBox) {
+            groupComboBox.model = groupComboBox.getGroupModel()
+        }
+        
+        // 这里应该将新分组保存到服务器
+        console.log("创建新分组:", newGroup)
     }
 }

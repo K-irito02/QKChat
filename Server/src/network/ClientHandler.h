@@ -43,19 +43,25 @@ public:
      * @brief 获取客户端ID
      * @return 客户端ID
      */
-    QString clientId() const { return _clientId; }
+    QString clientId() const;
     
     /**
-     * @brief 获取用户ID
-     * @return 用户ID，未认证返回-1
+     * @brief 获取当前用户ID
+     * @return 用户ID
      */
-    qint64 userId() const { return _userId; }
+    qint64 getCurrentUserId() const;
+    
+    /**
+     * @brief 获取当前用户ID（别名方法）
+     * @return 用户ID
+     */
+    qint64 userId() const;
     
     /**
      * @brief 获取客户端状态
      * @return 客户端状态
      */
-    ClientState state() const { return _state; }
+    ClientState state() const;
     
     /**
      * @brief 获取客户端IP地址
@@ -67,19 +73,19 @@ public:
      * @brief 获取连接时间
      * @return 连接时间
      */
-    QDateTime connectTime() const { return _connectTime; }
+    QDateTime connectTime() const;
     
     /**
      * @brief 获取最后活动时间
      * @return 最后活动时间
      */
-    QDateTime lastActivity() const { return _lastActivity; }
+    QDateTime lastActivity() const;
     
     /**
      * @brief 检查是否已认证
      * @return 是否已认证
      */
-    bool isAuthenticated() const { return _state == Authenticated; }
+    bool isAuthenticated() const;
     
     /**
      * @brief 检查连接是否有效
@@ -201,17 +207,12 @@ private:
     
     /**
      * @brief 发送认证响应
-     * @param success 认证是否成功
+     * @param success 是否成功
      * @param message 响应消息
-     * @param userData 用户数据（可选）
+     * @param userData 用户数据
      */
-    void sendAuthResponse(bool success, const QString &message, const QJsonObject &userData = QJsonObject());
-    
-    /**
-     * @brief 发送心跳响应
-     */
-    void sendHeartbeatResponse();
-    
+    void sendAuthResponse(bool success, const QString &message, const QJsonObject &userData);
+
     /**
      * @brief 发送错误响应
      * @param requestId 请求ID

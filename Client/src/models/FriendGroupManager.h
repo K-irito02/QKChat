@@ -45,8 +45,8 @@ public:
     Q_INVOKABLE void refreshData();
     
     // 数据处理方法
-    void handleFriendGroupsReceived(const QJsonArray& groups);
-    void handleFriendListReceived(const QJsonArray& friends);
+    Q_INVOKABLE void handleFriendGroupsReceived(const QJsonArray& groups);
+    Q_INVOKABLE void handleFriendListReceived(const QJsonArray& friends);
     void handleRecentContactsReceived(const QJsonArray& contacts);
     void handleChatGroupsReceived(const QJsonArray& groups);
     

@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QTimer>
 #include <QLoggingCategory>
+#include <QtConcurrent>
 
 #include <exception>
 
@@ -51,16 +52,16 @@ int main(int argc, char *argv[])
         }
     }
 
-    // 异步初始化数据库，避免阻塞主线程
+    // 在工作线程中异步初始化数据库，避免阻塞主线程
     DatabaseManager* dbManager = DatabaseManager::instance();
     
-    // 使用QTimer延迟初始化数据库，给UI更多时间渲染
-    QTimer::singleShot(100, [dbManager]() {
+    // 使用QtConcurrent在工作线程中初始化数据库
+    QtConcurrent::run([dbManager]() {
         try {
             if (!dbManager->initialize()) {
                 LOG_ERROR("Failed to initialize database");
             } else {
-            
+                LOG_INFO("Database initialized successfully in worker thread");
             }
         } catch (const std::exception& e) {
             LOG_ERROR(QString("Exception during database initialization: %1").arg(e.what()));

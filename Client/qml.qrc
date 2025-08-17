@@ -23,6 +23,7 @@
         <file>qml/components/MessageBubble.qml</file>
         <file>qml/components/UserSearchDialog.qml</file>
         <file>qml/components/UserSearchResultItem.qml</file>
+        <file>qml/components/AddFriendConfirmDialog.qml</file>
         <file>qml/components/GroupedListView.qml</file>
         <file>qml/components/GroupHeader.qml</file>
         <file>qml/components/GroupManagementDialog.qml</file>

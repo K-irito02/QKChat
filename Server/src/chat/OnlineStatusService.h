@@ -150,6 +150,12 @@ public:
     void cleanupExpiredStatus();
 
     /**
+     * @brief 处理用户上线后的离线消息推送
+     * @param userId 用户ID
+     */
+    void processOfflineMessages(qint64 userId);
+
+    /**
      * @brief 状态枚举转字符串
      */
     static QString statusToString(OnlineStatus status);
@@ -223,7 +229,7 @@ private:
     QTimer* _cleanupTimer;
     
     // 心跳超时时间（秒）
-    static const int HEARTBEAT_TIMEOUT = 60;
+    static const int HEARTBEAT_TIMEOUT = 30; // 30秒（临时用于测试）
     
     // 清理间隔（毫秒）
     static const int CLEANUP_INTERVAL = 30000; // 30秒

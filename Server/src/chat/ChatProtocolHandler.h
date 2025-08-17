@@ -59,6 +59,7 @@ private:
     QJsonObject handleGetFriendGroups(const QJsonObject& request, qint64 userId);
     QJsonObject handleCreateFriendGroup(const QJsonObject& request, qint64 userId);
     QJsonObject handleDeleteFriendGroup(const QJsonObject& request, qint64 userId);
+    QJsonObject handleDeleteFriendRequestNotification(const QJsonObject& request, qint64 userId);
     QJsonObject handleRenameFriendGroup(const QJsonObject& request, qint64 userId);
     QJsonObject handleMoveFriendToGroup(const QJsonObject& request, qint64 userId);
     QJsonObject handleUpdateFriendNote(const QJsonObject& request, qint64 userId);
