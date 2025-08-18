@@ -11,6 +11,10 @@
 #include <QDateTime>
 #include "../utils/Logger.h"
 
+// 前向声明
+class ThreadPoolServer;
+class OnlineStatusService;
+
 /**
  * @brief 好友管理服务类
  * 负责处理好友请求、好友列表、好友状态等功能

@@ -164,6 +164,9 @@ QJsonObject ChatProtocolHandler::handleFriendOperations(const QJsonObject& reque
     } else if (action == "delete_friend_request_notification") {
         // 处理删除好友请求通知
         result = handleDeleteFriendRequestNotification(request, userId);
+    } else if (action == "friend_ignore") {
+        // 处理忽略好友请求
+        result = handleIgnoreFriendRequest(request, userId);
     } else {
         LOG_ERROR(QString("Unknown friend action: %1").arg(action));
         result = createErrorResponse(requestId, action, "INVALID_ACTION", "Unknown friend action: " + action);
@@ -216,30 +219,26 @@ QJsonObject ChatProtocolHandler::handleFriendResponse(const QJsonObject& request
     QString requestId = requestData["request_id"].toString();
     QString action = requestData["action"].toString();
     
-    LOG_INFO("=== 处理好友请求响应 ===");
-    LOG_INFO(QString("原始请求数据: %1").arg(QString::fromUtf8(QJsonDocument(requestData).toJson(QJsonDocument::Compact))));
-    LOG_INFO(QString("用户ID: %1").arg(userId));
-    LOG_INFO(QString("请求ID: %1").arg(requestId));
-    LOG_INFO(QString("动作: %1").arg(action));
+
     
     // 从friend_request_id字段读取数据库的friend request ID
     QJsonValue friendRequestIdValue = requestData["friend_request_id"];
-    LOG_INFO(QString("friend_request_id原始值: %1, 类型: %2").arg(friendRequestIdValue.toString()).arg(friendRequestIdValue.type()));
+
     
     qint64 friendRequestId = friendRequestIdValue.toVariant().toLongLong();
-    LOG_INFO(QString("转换后的friendRequestId: %1").arg(friendRequestId));
+
     
     bool accept = requestData["accept"].toBool();
-    LOG_INFO(QString("accept值: %1").arg(accept));
+
     
     QString note = requestData["note"].toString();
     QString groupName = requestData["group_name"].toString();
-    LOG_INFO(QString("备注: '%1', 分组: '%2'").arg(note).arg(groupName));
+
     
     // 调用FriendService处理好友请求响应
     bool success = _friendService->respondToFriendRequest(userId, friendRequestId, accept, note, groupName);
     
-    LOG_INFO(QString("FriendService响应结果: %1").arg(success ? "成功" : "失败"));
+
     
     if (success) {
         QJsonObject data;
@@ -252,7 +251,7 @@ QJsonObject ChatProtocolHandler::handleFriendResponse(const QJsonObject& request
         if (!groupName.isEmpty()) {
             data["group_name"] = groupName;
         }
-        LOG_INFO(QString("返回成功响应: %1").arg(QString::fromUtf8(QJsonDocument(data).toJson(QJsonDocument::Compact))));
+    
         return createSuccessResponse(requestId, action, data);
     } else {
         LOG_ERROR("返回失败响应: 操作失败");
@@ -265,13 +264,11 @@ QJsonObject ChatProtocolHandler::handleGetFriendList(const QJsonObject& request,
     QString requestId = request["request_id"].toString();
     QString action = request["action"].toString();
     
-    LOG_INFO(QString("=== 处理获取好友列表请求 ==="));
-    LOG_INFO(QString("请求ID: %1, 用户ID: %2, 动作: %3").arg(requestId).arg(userId).arg(action));
-    LOG_INFO(QString("当前时间: %1").arg(QDateTime::currentDateTime().toString(Qt::ISODate)));
+
     
     QJsonArray friendList = _friendService->getFriendList(userId);
     
-    LOG_INFO(QString("好友列表查询完成，返回 %1 个好友").arg(friendList.size()));
+
     
     QJsonObject data;
     data["friends"] = friendList;
@@ -280,7 +277,7 @@ QJsonObject ChatProtocolHandler::handleGetFriendList(const QJsonObject& request,
     // 修复：将action改为friend_list_response以匹配客户端期望
     QJsonObject response = createSuccessResponse(requestId, "friend_list_response", data);
     
-    LOG_INFO(QString("好友列表响应已创建，准备发送给用户 %1").arg(userId));
+
     
     return response;
 }
@@ -319,9 +316,9 @@ QJsonObject ChatProtocolHandler::handleRemoveFriend(const QJsonObject& request, 
         QJsonObject data;
         data["friend_id"] = friendId;
         data["message"] = "Friend removed successfully";
-        return createSuccessResponse(requestId, action, data);
+        return createSuccessResponse(requestId, "friend_remove_response", data);
     } else {
-        return createErrorResponse(requestId, action, "OPERATION_FAILED", "Failed to remove friend");
+        return createErrorResponse(requestId, "friend_remove_response", "OPERATION_FAILED", "Failed to remove friend");
     }
 }
 
@@ -500,12 +497,7 @@ QJsonObject ChatProtocolHandler::handleHeartbeat(const QJsonObject& request, qin
     QString clientId = request["client_id"].toString();
     qint64 requestUserId = request["user_id"].toVariant().toLongLong();
 
-    LOG_INFO("=== 处理心跳请求 ===");
-    LOG_INFO(QString("当前时间: %1").arg(QDateTime::currentDateTime().toString(Qt::ISODate)));
-    LOG_INFO(QString("请求ID: %1").arg(requestId));
-    LOG_INFO(QString("会话用户ID: %1").arg(userId));
-    LOG_INFO(QString("请求中的用户ID: %1").arg(requestUserId));
-    LOG_INFO(QString("客户端ID: %1").arg(clientId));
+
 
     // 验证用户ID
     if (userId <= 0) {
@@ -522,7 +514,7 @@ QJsonObject ChatProtocolHandler::handleHeartbeat(const QJsonObject& request, qin
     bool success = _statusService->updateHeartbeat(userId, clientId);
 
     if (success) {
-        LOG_INFO(QString("心跳更新成功: 用户ID=%1, 客户端ID=%2").arg(userId).arg(clientId));
+    
         
         QJsonObject data;
         data["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
@@ -542,9 +534,12 @@ QJsonObject ChatProtocolHandler::handleMessageResponse(const QJsonObject& reques
     QString action = request["action"].toString();
     QString requestId = request["request_id"].toString();
 
+    
+
     if (action == "send_message") {
         return handleSendMessage(request, userId);
     } else if (action == "get_chat_history") {
+    
         return handleGetChatHistory(request, userId);
     } else if (action == "get_chat_sessions") {
         return handleGetChatSessions(request, userId);
@@ -570,9 +565,12 @@ QJsonObject ChatProtocolHandler::handleSendMessage(const QJsonObject& request, q
     QString requestId = request["request_id"].toString();
     QString action = request["action"].toString();
 
+    
+
     // 验证必需参数
     QString errorMessage;
     if (!validateRequest(request, {"receiver_id", "content"}, errorMessage)) {
+        LOG_ERROR(QString("ChatProtocolHandler: handleSendMessage validation failed - %1").arg(errorMessage));
         return createErrorResponse(requestId, action, "INVALID_PARAMS", errorMessage);
     }
 
@@ -583,18 +581,28 @@ QJsonObject ChatProtocolHandler::handleSendMessage(const QJsonObject& request, q
     qint64 fileSize = request["file_size"].toVariant().toLongLong();
     QString fileHash = request["file_hash"].toString();
 
+
+
     MessageService::MessageType messageType = MessageService::stringToMessageType(type);
+
 
     QString messageId = _messageService->sendMessage(userId, receiverId, messageType, content, fileUrl, fileSize, fileHash);
 
-    if (!messageId.isEmpty()) {
+
+
+    if (!messageId.isEmpty() && messageId != "NOT_FRIENDS") {
         QJsonObject data;
         data["message_id"] = messageId;
         data["receiver_id"] = receiverId;
         data["type"] = type;
         data["message"] = "Message sent successfully";
-        return createSuccessResponse(requestId, action, data);
+    
+        return createSuccessResponse(requestId, "send_message_response", data);
+    } else if (messageId == "NOT_FRIENDS") {
+        LOG_WARNING(QString("ChatProtocolHandler: handleSendMessage - Users are not friends"));
+        return createErrorResponse(requestId, action, "NOT_FRIENDS", "未加对方为好友，无法发送消息");
     } else {
+        LOG_ERROR(QString("ChatProtocolHandler: handleSendMessage - Failed to send message"));
         return createErrorResponse(requestId, action, "SEND_FAILED", "Failed to send message");
     }
 }
@@ -604,9 +612,12 @@ QJsonObject ChatProtocolHandler::handleGetChatHistory(const QJsonObject& request
     QString requestId = request["request_id"].toString();
     QString action = request["action"].toString();
 
+    
+
     // 验证必需参数
     QString errorMessage;
     if (!validateRequest(request, {"chat_user_id"}, errorMessage)) {
+        LOG_ERROR(QString("ChatProtocolHandler: handleGetChatHistory validation failed - %1").arg(errorMessage));
         return createErrorResponse(requestId, action, "INVALID_PARAMS", errorMessage);
     }
 
@@ -614,7 +625,11 @@ QJsonObject ChatProtocolHandler::handleGetChatHistory(const QJsonObject& request
     int limit = request["limit"].toInt(50);
     int offset = request["offset"].toInt(0);
 
+    
+
     QJsonArray messages = _messageService->getChatHistory(userId, chatUserId, limit, offset);
+
+
 
     QJsonObject data;
     data["messages"] = messages;
@@ -623,7 +638,7 @@ QJsonObject ChatProtocolHandler::handleGetChatHistory(const QJsonObject& request
     data["limit"] = limit;
     data["offset"] = offset;
 
-    return createSuccessResponse(requestId, action, data);
+    return createSuccessResponse(requestId, "get_chat_history_response", data);
 }
 
 QJsonObject ChatProtocolHandler::handleGetChatSessions(const QJsonObject& request, qint64 userId)
@@ -830,6 +845,7 @@ bool ChatProtocolHandler::validateRequest(const QJsonObject& request, const QStr
 void ChatProtocolHandler::logRequest(const QString& action, const QString& requestId, qint64 userId, const QString& clientIP)
 {
     // 处理聊天请求
+
 }
 
 // 好友分组相关方法实现
@@ -970,5 +986,37 @@ QJsonObject ChatProtocolHandler::handleDeleteFriendRequestNotification(const QJs
         return createSuccessResponse(requestId, action, data);
     } else {
         return createErrorResponse(requestId, action, "OPERATION_FAILED", "Failed to delete friend request notification");
+    }
+}
+
+QJsonObject ChatProtocolHandler::handleIgnoreFriendRequest(const QJsonObject& request, qint64 userId)
+{
+    QString requestId = request["request_id"].toString();
+    QString action = request["action"].toString();
+    
+
+    
+    // 验证必需参数
+    QString errorMessage;
+    if (!validateRequest(request, {"friend_request_id"}, errorMessage)) {
+        LOG_ERROR(QString("参数验证失败: %1").arg(errorMessage));
+        return createErrorResponse(requestId, action, "INVALID_PARAMS", errorMessage);
+    }
+    
+    qint64 friendRequestId = request["friend_request_id"].toVariant().toLongLong();
+    
+
+    
+    bool success = _friendService->ignoreFriendRequest(userId, friendRequestId);
+    
+    if (success) {
+        QJsonObject data;
+        data["request_id"] = friendRequestId;
+        data["message"] = "Friend request ignored successfully";
+    
+        return createSuccessResponse(requestId, "friend_ignore_response", data);
+    } else {
+        LOG_ERROR(QString("忽略好友请求失败: 用户ID: %1, 申请ID: %2").arg(userId).arg(friendRequestId));
+        return createErrorResponse(requestId, "friend_ignore_response", "OPERATION_FAILED", "Failed to ignore friend request");
     }
 }

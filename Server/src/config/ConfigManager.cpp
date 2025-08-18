@@ -145,7 +145,7 @@ bool ConfigManager::saveConfig(const QString &filePath)
 
     // 在锁外记录日志
     if (success) {
-        LOG_INFO(QString("Configuration saved to: %1").arg(targetPath));
+    
     } else {
         LOG_ERROR(QString("Failed to save configuration to: %1").arg(targetPath));
     }
@@ -184,7 +184,7 @@ void ConfigManager::setHotReloadEnabled(bool enabled)
     }
 
     // 在锁外记录日志
-    LOG_INFO(QString("Configuration hot reload %1").arg(enabled ? "enabled" : "disabled"));
+
 }
 
 QVariant ConfigManager::getValue(const QString &key, const QVariant &defaultValue) const

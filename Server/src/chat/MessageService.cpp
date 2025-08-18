@@ -57,10 +57,14 @@ QString MessageService::sendMessage(qint64 senderId, qint64 receiverId, MessageT
 {
     QMutexLocker locker(&_mutex);
     
+    LOG_INFO(QString("MessageService: sendMessage - Sender: %1, Receiver: %2, Type: %3, Content: %4")
+             .arg(senderId).arg(receiverId).arg(messageTypeToString(type)).arg(content));
+    
     // 检查用户是否为好友
     if (!areUsersFriends(senderId, receiverId)) {
         LOG_WARNING(QString("Cannot send message: users %1 and %2 are not friends").arg(senderId).arg(receiverId));
-        return QString();
+        // 返回错误信息而不是空字符串，让客户端知道具体原因
+        return "NOT_FRIENDS";
     }
     
     // 生成消息ID
@@ -125,6 +129,9 @@ QString MessageService::sendMessage(qint64 senderId, qint64 receiverId, MessageT
         
         QJsonObject messageJson = buildMessageJson(messageInfo);
         
+        // 添加通知类型字段，以便客户端正确识别
+        messageJson["notification_type"] = "new_message";
+        
         // 尝试实时推送给接收者
         bool pushed = pushMessageToUser(receiverId, messageJson);
         
@@ -139,6 +146,9 @@ QString MessageService::sendMessage(qint64 senderId, qint64 receiverId, MessageT
         // 发送信号
         emit newMessage(senderId, receiverId, messageId, messageJson);
         
+        LOG_INFO(QString("MessageService: sendMessage - Successfully sent message %1 from %2 to %3")
+                 .arg(messageId).arg(senderId).arg(receiverId));
+        
         return messageId;
         
     } catch (const std::exception& e) {
@@ -151,6 +161,9 @@ QString MessageService::sendMessage(qint64 senderId, qint64 receiverId, MessageT
 QJsonArray MessageService::getChatHistory(qint64 userId1, qint64 userId2, int limit, int offset)
 {
     QMutexLocker locker(&_mutex);
+    
+    LOG_INFO(QString("MessageService: getChatHistory - User1: %1, User2: %2, Limit: %3, Offset: %4")
+             .arg(userId1).arg(userId2).arg(limit).arg(offset));
     
     QJsonArray messages;
     
@@ -181,6 +194,9 @@ QJsonArray MessageService::getChatHistory(qint64 userId1, qint64 userId2, int li
         return messages;
     }
     
+    LOG_INFO(QString("MessageService: getChatHistory - Database query executed successfully"));
+    
+    int messageCount = 0;
     while (query.next()) {
         QJsonObject message;
         message["id"] = query.value("id").toLongLong();
@@ -210,7 +226,10 @@ QJsonArray MessageService::getChatHistory(qint64 userId1, qint64 userId2, int li
         message["is_own"] = query.value("sender_id").toLongLong() == userId1;
         
         messages.append(message);
+        messageCount++;
     }
+    
+    LOG_INFO(QString("MessageService: getChatHistory - Processed %1 messages from database").arg(messageCount));
     
     // 获取聊天消息成功
     return messages;

@@ -1,4 +1,4 @@
-# Qt6项目Git忽略文件
+# Qt6项目忽略文件
 
 # ===== 构建目录 =====
 build/
@@ -71,6 +71,8 @@ venv/
 MCP/
 
 # ===== 编辑器配置文件 =====
+.cursor/
+.cursorignore
 .vscode/
 .augment/
 .windsurfrules
@@ -79,10 +81,10 @@ MCP/
 .gitignore
 
 # ===== 其它文件 =====
-# 问题记录/
+问题记录/
 优化建议/
 .tasks/
 笔记/
 docs/
 开发报告/
-# 日志文件夹/
+日志文件夹/

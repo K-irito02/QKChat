@@ -16,6 +16,8 @@
 #include "src/models/User.h"
 #include "src/models/AuthResponse.h"
 #include "src/models/FriendGroupManager.h"
+#include "src/models/ChatMessageManager.h"
+#include "src/models/RecentContactsManager.h"
 #include "src/utils/Logger.h"
 #include "src/DatabaseManager.h"
 #include "src/chat/ChatNetworkClient.h"
@@ -56,12 +58,12 @@ int main(int argc, char *argv[])
     DatabaseManager* dbManager = DatabaseManager::instance();
     
     // 使用QtConcurrent在工作线程中初始化数据库
-    QtConcurrent::run([dbManager]() {
+    auto dbInitFuture = QtConcurrent::run([dbManager]() {
         try {
             if (!dbManager->initialize()) {
                 LOG_ERROR("Failed to initialize database");
             } else {
-                LOG_INFO("Database initialized successfully in worker thread");
+            
             }
         } catch (const std::exception& e) {
             LOG_ERROR(QString("Exception during database initialization: %1").arg(e.what()));
@@ -69,6 +71,7 @@ int main(int argc, char *argv[])
             LOG_ERROR("Unknown exception during database initialization");
         }
     });
+    Q_UNUSED(dbInitFuture); // 明确表示我们不需要等待结果
 
     // 注册QML类型
     qmlRegisterType<User>("QKChat", 1, 0, "User");
@@ -76,6 +79,8 @@ int main(int argc, char *argv[])
     qmlRegisterType<AuthManager>("QKChat", 1, 0, "AuthManager");
     qmlRegisterType<SessionManager>("QKChat", 1, 0, "SessionManager");
     qmlRegisterType<ChatNetworkClient>("QKChat", 1, 0, "ChatNetworkClient");
+    qmlRegisterType<ChatMessageManager>("QKChat", 1, 0, "ChatMessageManager");
+    qmlRegisterType<RecentContactsManager>("QKChat", 1, 0, "RecentContactsManager");
 
     // 创建QML引擎
     QQmlApplicationEngine engine;
@@ -90,6 +95,8 @@ int main(int argc, char *argv[])
     SessionManager* sessionManager = nullptr;
     ChatNetworkClient* chatNetworkClient = nullptr;
     FriendGroupManager* friendGroupManager = nullptr;
+    ChatMessageManager* chatMessageManager = nullptr;
+    RecentContactsManager* recentContactsManager = nullptr;
 
     try {
         // 首先创建管理器实例
@@ -97,12 +104,16 @@ int main(int argc, char *argv[])
         sessionManager = SessionManager::instance();
         chatNetworkClient = ChatNetworkClient::instance();
         friendGroupManager = new FriendGroupManager(&app);
+        chatMessageManager = ChatMessageManager::instance();
+        recentContactsManager = RecentContactsManager::instance();
 
         // 将管理器实例暴露给QML（先暴露，后初始化）
         engine.rootContext()->setContextProperty("authManager", authManager);
         engine.rootContext()->setContextProperty("sessionManager", sessionManager);
         engine.rootContext()->setContextProperty("ChatNetworkClient", chatNetworkClient);
         engine.rootContext()->setContextProperty("FriendGroupManager", friendGroupManager);
+        engine.rootContext()->setContextProperty("ChatMessageManager", chatMessageManager);
+        engine.rootContext()->setContextProperty("RecentContactsManager", recentContactsManager);
 
         // 异步初始化认证管理器，避免阻塞UI
         QTimer::singleShot(50, [authManager, chatNetworkClient]() {

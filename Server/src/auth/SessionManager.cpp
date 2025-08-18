@@ -89,8 +89,7 @@ void SessionManager::loadConfiguration()
         _multiDeviceSupport = sessionConfig["multi_device_support"].toBool(_multiDeviceSupport);
     }
     
-    LOG_INFO(QString("Session configuration loaded - Default: %1s, RememberMe: %2s, MaxSessions: %3")
-             .arg(_defaultTimeout).arg(_rememberMeTimeout).arg(_maxSessionsPerUser));
+
 }
 
 bool SessionManager::createSession(qint64 userId, const QString& sessionToken, const QString& deviceId,
@@ -124,8 +123,7 @@ bool SessionManager::createSession(qint64 userId, const QString& sessionToken, c
         QMutexLocker locker(&_statsMutex);
         _totalSessionsCreated++;
         
-        LOG_INFO(QString("Session created for user %1, device %2, expires at %3")
-                 .arg(userId).arg(deviceId).arg(sessionInfo.expiresAt.toString()));
+
         
         emit sessionCreated(sessionToken, userId);
         return true;
@@ -173,7 +171,7 @@ SessionManager::SessionInfo SessionManager::validateSession(const QString& sessi
         _totalSessionsExpired++;
         _totalCacheMisses++;
         
-        LOG_INFO(QString("Session expired for user %1").arg(sessionInfo.userId));
+    
         emit sessionExpired(sessionToken, sessionInfo.userId);
         
         return SessionInfo();
@@ -249,7 +247,7 @@ bool SessionManager::destroySession(const QString& sessionToken)
         _totalSessionsDestroyed++;
         
         if (sessionInfo.isValid) {
-            LOG_INFO(QString("Session destroyed for user %1").arg(sessionInfo.userId));
+        
             emit sessionDestroyed(sessionToken, sessionInfo.userId);
         }
         
@@ -275,7 +273,7 @@ int SessionManager::destroyUserSessions(qint64 userId)
         }
     }
     
-    LOG_INFO(QString("Destroyed %1 sessions for user %2").arg(destroyedCount).arg(userId));
+
     return destroyedCount;
 }
 
@@ -333,7 +331,7 @@ int SessionManager::cleanupExpiredSessions()
     }
     
     if (cleanedCount > 0) {
-        LOG_INFO(QString("Cleaned up %1 expired sessions").arg(cleanedCount));
+    
     }
     
     return cleanedCount;

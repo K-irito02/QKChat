@@ -510,9 +510,7 @@ void NetworkClient::startReconnection()
     // 简化重连延迟，避免过长的延迟
     int delay = qMin(_reconnectInterval * _currentReconnectAttempts, 10000); // 最大10秒
 
-    LOG_INFO(QString("Starting reconnection attempt %1/%2")
-             .arg(_currentReconnectAttempts)
-             .arg(_maxReconnectAttempts));
+
     
     // 确保重连定时器是单次触发
     _reconnectTimer->setSingleShot(true);
@@ -560,7 +558,7 @@ void NetworkClient::setConnectionState(ConnectionState state)
         if (_connectionState != state) {
             _connectionState = state;
             emit connectionStateChanged(state);
-            LOG_INFO(QString("Connection state changed to %1").arg(static_cast<int>(state)));
+        
         }
         
     } catch (const std::exception& e) {
@@ -572,17 +570,12 @@ void NetworkClient::setConnectionState(ConnectionState state)
 
 QString NetworkClient::sendChatRequest(const QJsonObject &request)
 {
-    // Sending chat request
-    LOG_INFO(QString("Action: %1").arg(request["action"].toString()));
-    
     if (!isConnected()) {
         LOG_ERROR("Cannot send chat request: not connected to server");
-        LOG_ERROR("Failed to send chat request: not connected");
         return QString();
     }
 
     QString requestId = generateRequestId();
-    LOG_INFO(QString("Generated request ID: %1").arg(requestId));
     
     QJsonObject requestWithId = request;
     requestWithId["request_id"] = requestId;
@@ -590,7 +583,6 @@ QString NetworkClient::sendChatRequest(const QJsonObject &request)
 
     QJsonDocument doc(requestWithId);
     QByteArray data = doc.toJson(QJsonDocument::Compact);
-    LOG_INFO(QString("Request JSON size: %1 bytes").arg(data.size()));
 
     // 添加消息长度前缀（4字节）
     QByteArray lengthPrefix;
@@ -599,28 +591,20 @@ QString NetworkClient::sendChatRequest(const QJsonObject &request)
     stream << static_cast<quint32>(data.size());
 
     QByteArray message = lengthPrefix + data;
-    LOG_INFO(QString("Total message size: %1 bytes").arg(message.size()));
 
     qint64 bytesWritten = _socket->write(message);
     if (bytesWritten == -1) {
         LOG_ERROR("Failed to send chat request to server");
-        LOG_ERROR("Failed to write chat request to socket");
         return QString();
     }
 
-    LOG_INFO(QString("Bytes written: %1").arg(bytesWritten));
     _socket->flush();
     
-    LOG_INFO(QString("Chat request sent successfully: %1, ID: %2").arg(request["action"].toString()).arg(requestId));
-    
-    // 将聊天请求添加到待处理列表，但不设置请求类型（因为聊天请求由ChatNetworkClient处理）
+    // 将聊天请求添加到待处理列表
     {
         QMutexLocker locker(&_dataMutex);
         _pendingRequests[requestId] = "chat";
-        LOG_INFO(QString("Added chat request to pending list: %1 -> chat").arg(requestId));
     }
-    
-    // Chat request sent successfully
     
     return requestId;
 }
@@ -746,23 +730,15 @@ void NetworkClient::processJsonResponse(const QJsonObject &response)
     QString requestId = response["request_id"].toString();
     QString action = response["action"].toString();
 
-    LOG_INFO(QString("Processing response: requestId=%1, action=%2").arg(requestId).arg(action));
-
     // 注意：此方法现在在锁外调用，需要在访问共享数据时加锁
     QString requestType;
     bool hasRequest = false;
 
     {
         QMutexLocker locker(&_dataMutex);
-        LOG_INFO(QString("Pending requests count: %1").arg(_pendingRequests.size()));
-        for (auto it = _pendingRequests.begin(); it != _pendingRequests.end(); ++it) {
-            LOG_INFO(QString("Pending request: %1 -> %2").arg(it.key()).arg(it.value()));
-        }
-
         if (_pendingRequests.contains(requestId)) {
             requestType = _pendingRequests.take(requestId);
             hasRequest = true;
-            LOG_INFO(QString("Found matching request: %1 -> %2").arg(requestId).arg(requestType));
         } else {
             LOG_WARNING(QString("No matching request found for ID: %1").arg(requestId));
         }
@@ -781,7 +757,6 @@ void NetworkClient::processJsonResponse(const QJsonObject &response)
             emit emailAvailabilityResponse(requestId, response);
         } else if (requestType == "chat") {
             // 聊天请求的响应直接转发给ChatNetworkClient
-            LOG_INFO(QString("Forwarding chat response to ChatNetworkClient: %1").arg(requestId));
             emit messageReceived(response);
         }
     } else if (action == "heartbeat_response") {
@@ -821,7 +796,6 @@ void NetworkClient::processJsonResponse(const QJsonObject &response)
     } else {
         // 发送消息接收信号，让ChatNetworkClient处理
         emit messageReceived(response);
-        LOG_INFO(QString("Forwarded message to ChatNetworkClient: %1").arg(requestId));
     }
 }
 
@@ -901,7 +875,7 @@ void NetworkClient::sendMessage(const QJsonObject& message)
     if (_socket && _socket->state() == QAbstractSocket::ConnectedState) {
         _socket->write(data);
         _socket->flush();
-        LOG_INFO(QString("Message sent: %1").arg(QString(data)));
+    
     } else {
         LOG_ERROR("Socket not available or not connected");
     }
@@ -929,28 +903,25 @@ QString NetworkClient::sessionToken() const
 
 void NetworkClient::setAuthenticated(bool authenticated, const QString& token, qint64 userId)
 {
-    LOG_INFO(QString("Setting authentication state: %1").arg(authenticated ? "true" : "false"));
+
     
     _isAuthenticated = authenticated;
     if (authenticated && !token.isEmpty()) {
         _sessionToken = token;
         _userId = userId;
-        LOG_INFO(QString("Session token set: %1, userId: %2").arg(token.left(10) + "...").arg(userId));
+    
     } else if (!authenticated) {
         _sessionToken.clear();
         _userId = -1;
         // LOG_INFO removed
     }
     
-    LOG_INFO(QString("Authentication state updated - isAuthenticated: %1, hasToken: %2, userId: %3")
-            .arg(_isAuthenticated ? "true" : "false")
-            .arg(_sessionToken.isEmpty() ? "false" : "true")
-            .arg(_userId));
+
 }
 
 void NetworkClient::setClientId(const QString& clientId)
 {
-    LOG_INFO(QString("Setting client ID: %1").arg(clientId));
+
     _clientId = clientId;
 }
 

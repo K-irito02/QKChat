@@ -42,9 +42,7 @@ bool SmartErrorHandler::handleError(const QString& errorType, const QString& err
 
         retryDelay = calculateRetryDelay(classifiedType, _errorCounts[classifiedTypeStr]);
 
-        LOG_INFO(QString("Error handling suggestion: retry=%1, delay=%2ms")
-                 .arg(shouldRetry ? "true" : "false")
-                 .arg(retryDelay));
+
     } // 锁在这里释放
 
     // 在锁外发射信号，避免死锁

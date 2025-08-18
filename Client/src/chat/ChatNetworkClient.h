@@ -86,7 +86,7 @@ public:
     /**
      * @brief 删除好友
      */
-    void removeFriend(qint64 friendId);
+    Q_INVOKABLE void removeFriend(qint64 friendId);
 
     /**
      * @brief 屏蔽用户

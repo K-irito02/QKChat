@@ -105,8 +105,7 @@ bool ServerManager::initialize()
         QString appDir = QCoreApplication::applicationDirPath();
         QString configPath = appDir + "/config/server.json";
 
-        LOG_INFO(QString("Application directory: %1").arg(appDir));
-        LOG_INFO(QString("Looking for config file at: %1").arg(configPath));
+        
 
         QFileInfo configFile(configPath);
         if (!configFile.exists()) {
@@ -125,7 +124,7 @@ bool ServerManager::initialize()
                 QFileInfo altFile(altPath);
                 if (altFile.exists()) {
                     configPath = altFile.absoluteFilePath();
-                    LOG_INFO(QString("Found config file at alternate path: %1").arg(configPath));
+                
                     found = true;
                     break;
                 }
@@ -220,7 +219,7 @@ bool ServerManager::startServer(quint16 port)
 
     _serverPort = port;
 
-    LOG_INFO(QString("Starting QKChat High-Performance Server on port %1...").arg(port));
+
 
     // 从配置文件读取TLS设置
     bool useTls = configManager->getValue("server.use_tls", true).toBool();
@@ -449,7 +448,7 @@ bool ServerManager::resetRateLimit(const QString& identifier)
         // 重置特定标识符的限流状态
         RateLimitManager::instance()->resetRateLimit(identifier, "friend_search");
         RateLimitManager::instance()->resetRateLimit(identifier, "login");
-        LOG_INFO(QString("Rate limit reset for identifier: %1").arg(identifier));
+    
     }
     
     return true;
@@ -463,7 +462,7 @@ bool ServerManager::resizeConnectionPool(int minConnections, int maxConnections)
     }
     
     DatabaseConnectionPool::instance()->resizePool(minConnections, maxConnections);
-    LOG_INFO(QString("Connection pool resized to %1-%2").arg(minConnections).arg(maxConnections));
+
     
     return true;
 }
@@ -471,7 +470,7 @@ bool ServerManager::resizeConnectionPool(int minConnections, int maxConnections)
 bool ServerManager::setAutoResizeEnabled(bool enabled)
 {
     DatabaseConnectionPool::instance()->setAutoResizeEnabled(enabled);
-    LOG_INFO(QString("Auto-resize %1").arg(enabled ? "enabled" : "disabled"));
+
     
     return true;
 }
@@ -492,7 +491,7 @@ void ServerManager::onThreadPoolClientConnected(ClientHandler* client)
     _totalConnections++;
     
     QString clientId = client ? client->clientId() : "unknown";
-    LOG_INFO(QString("Client connected: %1 (Total: %2)").arg(clientId).arg(_clientCount));
+
     emit clientConnected(_clientCount);
 }
 
@@ -501,25 +500,25 @@ void ServerManager::onThreadPoolClientDisconnected(ClientHandler* client)
     _clientCount--;
     
     QString clientId = client ? client->clientId() : "unknown";
-    LOG_INFO(QString("Client disconnected: %1 (Total: %2)").arg(clientId).arg(_clientCount));
+
     emit clientDisconnected(_clientCount);
 }
 
 void ServerManager::onThreadPoolUserLoggedIn(qint64 userId, ClientHandler* client)
 {
     QString clientId = client ? client->clientId() : "unknown";
-    LOG_INFO(QString("User logged in: ID=%1, Client=%2").arg(userId).arg(clientId));
+
     emit userLoggedIn(userId, QString("User_%1").arg(userId));
 }
 
 void ServerManager::onThreadPoolUserLoggedOut(qint64 userId)
 {
-    LOG_INFO(QString("User logged out: ID=%1").arg(userId));
+
 }
 
 void ServerManager::onProtocolUserLoggedIn(qint64 userId, const QString &clientId, const QString &sessionToken)
 {
-    LOG_INFO(QString("Protocol: User logged in: ID=%1, Client=%2").arg(userId).arg(clientId));
+
     emit userLoggedIn(userId, QString("User_%1").arg(userId));
 }
 
@@ -527,7 +526,7 @@ void ServerManager::onProtocolUserRegistered(qint64 userId, const QString &usern
 {
     _totalRegistrations++;
     
-    LOG_INFO(QString("User registered: %1 (%2)").arg(username).arg(email));
+
     emit userRegistered(userId, username, email);
 }
 
@@ -581,8 +580,7 @@ bool ServerManager::initializeDatabasePool()
     int minConnections = configManager->getValue("database.min_connections", 5).toInt();
     int maxConnections = configManager->getValue("database.max_connections", 20).toInt();
     
-    LOG_INFO(QString("Initializing database connection pool: %1@%2:%3/%4 (pool: %5-%6)")
-             .arg(username).arg(host).arg(port).arg(database).arg(minConnections).arg(maxConnections));
+    
     
     bool result = _databaseManager->initialize(host, port, database, username, password, 
                                               minConnections, maxConnections);
@@ -608,7 +606,7 @@ bool ServerManager::initializeRedis()
     QString password = configManager->getValue("redis.password", "").toString();
     int database = configManager->getValue("redis.database", 0).toInt();
     
-    LOG_INFO(QString("Initializing Redis connection: %1:%2").arg(host).arg(port));
+
     
     return _redisClient->initialize(host, port, password, database);
 }
@@ -625,8 +623,7 @@ bool ServerManager::initializeEmailService()
     QString password = configManager->getValue("smtp.password", "").toString();
     bool useTls = configManager->getValue("smtp.use_tls", true).toBool();
 
-    LOG_INFO(QString("Initializing EmailService: host=%1, port=%2, username=%3, useTls=%4")
-             .arg(host).arg(port).arg(username).arg(useTls ? "true" : "false"));
+    
 
     if (username.isEmpty() || password.isEmpty()) {
         LOG_ERROR("SMTP username or password is empty in configuration");

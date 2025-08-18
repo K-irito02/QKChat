@@ -146,8 +146,7 @@ void NetworkQualityMonitor::calculateNetworkQuality()
     
     // 如果质量评分发生变化，发出信号
     if (oldQuality != _networkQuality) {
-        LOG_INFO(QString("Network quality changed: %1 -> %2 (avg RTT: %3ms)")
-                 .arg(oldQuality).arg(_networkQuality).arg(_averageRtt));
+
         emit networkQualityChanged(_networkQuality);
     }
 } 

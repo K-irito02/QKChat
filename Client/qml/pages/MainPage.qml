@@ -41,6 +41,19 @@ Rectangle {
     // 好友管理相关属性
     property var currentChatUser: null
     property bool showFriendList: true
+
+    // 监听currentChatUser变化
+    onCurrentChatUserChanged: {
+        console.log("=== currentChatUser变化 ===")
+        console.log("新的currentChatUser:", JSON.stringify(currentChatUser))
+        if (currentChatUser) {
+            console.log("用户ID字段检查:")
+            console.log("  user_id:", currentChatUser.user_id)
+            console.log("  id:", currentChatUser.id)
+            console.log("  friend_id:", currentChatUser.friend_id)
+        }
+        console.log("=== currentChatUser变化结束 ===")
+    }
     
     // 好友请求相关属性
     property var friendRequests: []
@@ -613,43 +626,37 @@ Rectangle {
                                 anchors.margins: 10
                                 spacing: 10
 
-                                // 分组最近联系人列表
-                                Components.GroupedListView {
+                                // 最近联系人列表
+                                ListView {
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
-                                    themeManager: mainPage.themeManager
-                                    groupsModel: FriendGroupManager.recentContacts
-                                    listType: "recent"
-                                    allowDragDrop: false  // 最近联系不支持拖拽
-
-                                    onItemClicked: function(itemData) {
-                                        // Recent contact clicked
-                                        // 打开聊天窗口
+                                    model: RecentContactsManager.recentContacts
+                                    delegate: recentContactDelegate
+                                    spacing: 2
+                                    
+                                    // 添加调试信息
+                                    onCountChanged: {
+                                        console.log("最近联系人列表数量变化:", count)
+                                        console.log("最近联系人列表内容长度:", RecentContactsManager.recentContacts.length)
+                                        if (RecentContactsManager.recentContacts.length > 0) {
+                                            console.log("第一个联系人数据:")
+                                            var firstContact = RecentContactsManager.recentContacts[0]
+                                            console.log("  user_id:", firstContact.user_id)
+                                            console.log("  username:", firstContact.username)
+                                            console.log("  display_name:", firstContact.display_name)
+                                        }
                                     }
-
-                                    onItemDoubleClicked: function(itemData) {
-                                        // Recent contact double clicked
-                                        // 快速发送消息
-                                    }
-
-                                    onItemContextMenu: function(itemData, position) {
-                                        recentContextMenu.contactData = itemData
-                                        recentContextMenu.popup()
-                                    }
-
-                                    onGroupExpanded: function(groupId, expanded) {
-                                        // TODO: 保存最近联系分组展开状态
-                                    }
-
-                                    onGroupManageRequested: function(action, groupData) {
-                                        handleRecentContactManagement(action, groupData)
+                                    
+                                    ScrollBar.vertical: ScrollBar {
+                                        active: true
+                                        policy: ScrollBar.AsNeeded
                                     }
                                 }
 
                                 // 空状态提示
                                 Label {
                                     Layout.alignment: Qt.AlignHCenter
-                                    visible: FriendGroupManager.recentContacts.length === 0
+                                    visible: RecentContactsManager.recentContacts.length === 0
                                     text: qsTr("暂无最近联系")
                                     color: themeManager.currentTheme.textSecondaryColor
                                     font.pixelSize: 16
@@ -676,8 +683,34 @@ Rectangle {
                                     allowDragDrop: true
 
                                     onItemClicked: function(itemData) {
-                                        // Friend clicked
-                                        // 打开聊天窗口
+                                        // Friend clicked - 设置当前聊天用户
+                                        console.log("=== 好友点击事件开始 ===")
+                                        console.log("点击的好友数据字段检查:")
+                                        console.log("  user_id:", itemData.user_id)
+                                        console.log("  id:", itemData.id)
+                                        console.log("  username:", itemData.username)
+                                        console.log("  display_name:", itemData.display_name)
+                                        
+                                        currentChatUser = itemData
+                                        console.log("currentChatUser已设置，字段检查:")
+                                        console.log("  user_id:", currentChatUser.user_id)
+                                        console.log("  username:", currentChatUser.username)
+                                        console.log("  display_name:", currentChatUser.display_name)
+                                        
+                                        ChatMessageManager.setCurrentChatUser(itemData)
+                                        console.log("ChatMessageManager.setCurrentChatUser已调用")
+                                        
+                                        // 切换到最近联系分类，显示聊天记录
+                                        recentButton.isActive = true
+                                        friendsButton.isActive = false
+                                        groupsButton.isActive = false
+                                        currentNavCategory = "recent"
+                                        console.log("已切换到最近联系分类，currentNavCategory:", currentNavCategory)
+                                        
+                                        // 添加到最近联系人
+                                        console.log("准备添加到最近联系人...")
+                                        addToRecentContacts(itemData)
+                                        console.log("=== 好友点击事件结束 ===")
                                     }
 
                                     onItemDoubleClicked: function(itemData) {
@@ -1036,10 +1069,13 @@ Rectangle {
                             height: 40
                             color: getThemeColor("secondaryColor", "#FF9800")
                             radius: 20
+                            visible: currentChatUser && (currentChatUser.user_id || currentChatUser.id)
 
                             Text {
                                 anchors.centerIn: parent
-                                text: "产"
+                                text: currentChatUser ? 
+                                      (currentChatUser.display_name ? currentChatUser.display_name.charAt(0).toUpperCase() :
+                                       currentChatUser.username ? currentChatUser.username.charAt(0).toUpperCase() : "?") : "?"
                                 color: "white"
                                 font.pixelSize: 16
                                 font.weight: Font.Bold
@@ -1050,73 +1086,45 @@ Rectangle {
                         ColumnLayout {
                             anchors.centerIn: parent
                             spacing: 2
+                            visible: currentChatUser && (currentChatUser.user_id || currentChatUser.id)
 
                             Text {
-                                text: "产品设计小组"
+                                text: currentChatUser ? (currentChatUser.display_name || currentChatUser.username || "未知用户") : ""
                                 color: getThemeColor("textPrimaryColor", "#333333")
                                 font.pixelSize: 16
                                 font.weight: Font.Medium
                                 horizontalAlignment: Text.AlignHCenter
                             }
 
-                            Text {
-                                text: "5名成员"
-                                color: getThemeColor("textSecondaryColor", "#666666")
-                                font.pixelSize: 12
-                                horizontalAlignment: Text.AlignHCenter
+                            RowLayout {
+                                Layout.alignment: Qt.AlignHCenter
+                                spacing: 4
+
+                                Rectangle {
+                                    Layout.preferredWidth: 6
+                                    Layout.preferredHeight: 6
+                                    radius: 3
+                                    color: currentChatUser && currentChatUser.is_online ? 
+                                           getThemeColor("successColor", "#4CAF50") : 
+                                           getThemeColor("textTertiaryColor", "#999999")
+                                }
+
+                                Text {
+                                    text: currentChatUser && currentChatUser.is_online ? "在线" : "离线"
+                                    color: getThemeColor("textSecondaryColor", "#666666")
+                                    font.pixelSize: 12
+                                    horizontalAlignment: Text.AlignHCenter
+                                }
                             }
                         }
 
-                        // 调试按钮
-                        Button {
-                            anchors.right: parent.right
-                            anchors.rightMargin: 40
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 40
-                            height: 40
-                            
-                            background: Rectangle {
-                                color: parent.pressed ? Qt.darker(themeManager.currentTheme.primaryColor, 1.2) :
-                                       parent.hovered ? Qt.lighter(themeManager.currentTheme.primaryColor, 1.1) :
-                                       themeManager.currentTheme.primaryColor
-                                radius: 20
-                                
-                                Behavior on color {
-                                    ColorAnimation { duration: 150 }
-                                }
-                            }
-                            
-                            contentItem: Text { text: "🐛" }
-                            onClicked: {
-                                debugRefreshFriendData()
-                                messageDialog.showInfo("调试", "已手动刷新好友数据，请查看控制台日志")
-                            }
-                        }
-                        
-                        // 测试好友请求响应按钮
-                        Button {
-                            anchors.right: parent.right
-                            anchors.rightMargin: 90
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 40
-                            height: 40
-                            
-                            background: Rectangle {
-                                color: parent.pressed ? Qt.darker(themeManager.currentTheme.secondaryColor, 1.2) :
-                                       parent.hovered ? Qt.lighter(themeManager.currentTheme.secondaryColor, 1.1) :
-                                       themeManager.currentTheme.secondaryColor
-                                radius: 20
-                                
-                                Behavior on color {
-                                    ColorAnimation { duration: 150 }
-                                }
-                            }
-                            
-                            contentItem: Text { text: "🧪" }
-                            onClicked: {
-                                testFriendRequestResponse()
-                                messageDialog.showInfo("测试", "已发送测试好友请求响应，请查看控制台日志")
-                            }
+                        // 默认提示信息
+                        Text {
+                            anchors.centerIn: parent
+                            text: "请选择一个好友开始聊天"
+                            color: getThemeColor("textSecondaryColor", "#666666")
+                            font.pixelSize: 14
+                            visible: !currentChatUser || (!currentChatUser.user_id && !currentChatUser.id)
                         }
                     }
                 }
@@ -1136,52 +1144,28 @@ Rectangle {
 
                         ListView {
                             id: messagesList
-                            model: messagesModel
-                            delegate: messageDelegate
+                            model: ChatMessageManager.messages
+                            delegate: messageDelegate1
                             spacing: 8
-                            // 修正消息显示顺序：最新消息在底部
-                            verticalLayoutDirection: ListView.TopToBottom
-
-                            // 模拟消息数据 - 按时间顺序排列
-                            // Component.onCompleted: {
-                            //     // 检查是否已经有数据，避免重复添加
-                            //     if (messagesModel.count === 0) {
-                            //         messagesModel.append({
-                            //             "sender": "王芳",
-                            //             "content": "设计方案的修改已经发送给大家了，大家看看有没有问题",
-                            //             "time": "10:15",
-                            //             "isOwn": false,
-                            //             "avatar": "王"
-                            //         })
-                            //         messagesModel.append({
-                            //             "sender": "戴雷",
-                            //             "content": "我同意上面的观点，能够更好地满足用户需求。大家有什么其他想法吗？",
-                            //             "time": "10:22",
-                            //             "isOwn": false,
-                            //             "avatar": "戴"
-                            //         })
-                            //         messagesModel.append({
-                            //             "sender": "我",
-                            //             "content": "我同意了，这个布局确实非常棒！大家主要做的很棒的",
-                            //             "time": "10:28",
-                            //             "isOwn": true,
-                            //             "avatar": sessionManager && sessionManager.currentUser ?
-                            //                      sessionManager.currentUser.username.charAt(0).toUpperCase() : "我"
-                            //         })
-                            //         messagesModel.append({
-                            //             "sender": "赵雷",
-                            //             "content": "我觉得这个方案很好，能够更好地满足用户需求。大家有什么其他想法吗？",
-                            //             "time": "10:38",
-                            //             "isOwn": false,
-                            //             "avatar": "赵"
-                            //         })
-
-                            //         // 自动滚动到底部显示最新消息
-                            //         Qt.callLater(function() {
-                            //             messagesList.positionViewAtEnd()
-                            //         })
-                            //     }
-                            // }
+                            verticalLayoutDirection: ListView.BottomToTop
+                            
+                            // 自动滚动到底部（新消息）
+                            onCountChanged: {
+                                Qt.callLater(function() {
+                                    if (count > 0) {
+                                        positionViewAtEnd()
+                                    }
+                                })
+                            }
+                            
+                            // 空状态提示
+                            Label {
+                                anchors.centerIn: parent
+                                visible: parent.count === 0 && currentChatUser && (currentChatUser.user_id || currentChatUser.id)
+                                text: "暂无聊天记录"
+                                color: themeManager.currentTheme.textSecondaryColor
+                                font.pixelSize: 14
+                            }
                         }
                     }
                 }
@@ -1466,8 +1450,309 @@ Rectangle {
         id: groupsModel  // 群组列表
     }
 
-    ListModel {
-        id: messagesModel
+    // 最近联系人委托组件
+    Component {
+        id: recentContactDelegate
+
+        Rectangle {
+            width: parent ? parent.width : 200
+            height: 60
+            color: recentMouseArea.containsMouse ? themeManager.currentTheme.borderColor : "transparent"
+            radius: 8
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 10
+                spacing: 12
+
+                // 头像
+                Rectangle {
+                    Layout.preferredWidth: 40
+                    Layout.preferredHeight: 40
+                    color: themeManager.currentTheme.primaryColor
+                    radius: 20
+                    border.color: modelData.is_online ? themeManager.currentTheme.successColor : themeManager.currentTheme.borderColor
+                    border.width: 2
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: {
+                            var displayName = modelData.display_name || modelData.username || modelData.name || modelData.displayName || "";
+                            console.log("最近联系人头像显示 - displayName:", displayName);
+                            console.log("最近联系人头像显示 - 字段检查:");
+                            console.log("  display_name:", modelData.display_name);
+                            console.log("  username:", modelData.username);
+                            console.log("  name:", modelData.name);
+                            console.log("  displayName:", modelData.displayName);
+                            if (displayName && displayName.length > 0) {
+                                var firstChar = displayName.charAt(0).toUpperCase();
+                                console.log("最近联系人头像显示 - firstChar:", firstChar);
+                                return firstChar;
+                            } else {
+                                console.log("最近联系人头像显示 - 使用默认字符 ?");
+                                return "?";
+                            }
+                        }
+                        color: "white"
+                        font.pixelSize: 16
+                        font.weight: Font.Bold
+                    }
+
+                    // 在线状态指示器
+                    Rectangle {
+                        width: 12
+                        height: 12
+                        radius: 6
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.rightMargin: -2
+                        anchors.bottomMargin: -2
+                        color: modelData.is_online ? themeManager.currentTheme.successColor : themeManager.currentTheme.borderColor
+                        border.color: themeManager.currentTheme.backgroundColor
+                        border.width: 2
+                    }
+                }
+
+                // 联系人信息
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+
+                    Text {
+                        text: {
+                            var displayText = modelData.display_name || modelData.username || modelData.name || modelData.displayName || "";
+                            console.log("最近联系人显示名称:", displayText);
+                            console.log("最近联系人数据字段检查:");
+                            console.log("  display_name:", modelData.display_name);
+                            console.log("  username:", modelData.username);
+                            console.log("  user_id:", modelData.user_id);
+                            console.log("  name:", modelData.name);
+                            console.log("  displayName:", modelData.displayName);
+                            return displayText || "未知用户";
+                        }
+                        color: themeManager.currentTheme.textPrimaryColor
+                        font.pixelSize: 14
+                        font.weight: Font.Medium
+                        elide: Text.ElideRight
+                    }
+
+                    Text {
+                        text: modelData.last_message || "暂无消息"
+                        color: themeManager.currentTheme.textSecondaryColor
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                    }
+                }
+
+                // 时间和未读消息
+                ColumnLayout {
+                    Layout.alignment: Qt.AlignTop
+                    spacing: 4
+
+                    Text {
+                        text: modelData.last_message_time || ""
+                        color: themeManager.currentTheme.textTertiaryColor
+                        font.pixelSize: 11
+                        horizontalAlignment: Text.AlignRight
+                    }
+
+                    Rectangle {
+                        Layout.preferredWidth: Math.max(18, unreadText1.implicitWidth + 6)
+                        Layout.preferredHeight: 18
+                        radius: 9
+                        color: themeManager.currentTheme.primaryColor
+                        visible: modelData.unread_count > 0
+
+                        Text {
+                            id: unreadText1
+                            anchors.centerIn: parent
+                            text: modelData.unread_count > 99 ? "99+" : modelData.unread_count.toString()
+                            color: "white"
+                            font.pixelSize: 10
+                            font.weight: Font.Bold
+                        }
+                    }
+                }
+            }
+
+            MouseArea {
+                id: recentMouseArea
+                anchors.fill: parent
+                hoverEnabled: true
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
+
+                onClicked: function(mouse) {
+                    if (mouse.button === Qt.LeftButton) {
+                        console.log("=== 最近联系人点击事件开始 ===")
+                        console.log("点击的最近联系人数据字段检查:")
+                        console.log("  user_id:", modelData.user_id)
+                        console.log("  id:", modelData.id)
+                        console.log("  username:", modelData.username)
+                        console.log("  display_name:", modelData.display_name)
+                        
+                        currentChatUser = modelData
+                        console.log("currentChatUser已设置，字段检查:")
+                        console.log("  user_id:", currentChatUser.user_id)
+                        console.log("  username:", currentChatUser.username)
+                        console.log("  display_name:", currentChatUser.display_name)
+                        
+                        ChatMessageManager.setCurrentChatUser(modelData)
+                        console.log("ChatMessageManager.setCurrentChatUser已调用")
+                        
+                        console.log("=== 最近联系人点击事件结束 ===")
+                    } else if (mouse.button === Qt.RightButton) {
+                        // 显示右键菜单
+                        recentContextMenu.contactData = modelData
+                        recentContextMenu.popup()
+                    }
+                }
+
+                onDoubleClicked: function(mouse) {
+                    if (mouse.button === Qt.LeftButton) {
+                        console.log("=== 最近联系人双击事件开始 ===")
+                        console.log("双击的最近联系人数据字段检查:")
+                        console.log("  user_id:", modelData.user_id)
+                        console.log("  username:", modelData.username)
+                        console.log("  display_name:", modelData.display_name)
+                        
+                        currentChatUser = modelData
+                        console.log("currentChatUser已设置，字段检查:")
+                        console.log("  user_id:", currentChatUser.user_id)
+                        console.log("  username:", currentChatUser.username)
+                        console.log("  display_name:", currentChatUser.display_name)
+                        
+                        ChatMessageManager.setCurrentChatUser(modelData)
+                        console.log("ChatMessageManager.setCurrentChatUser已调用")
+                        
+                        console.log("=== 最近联系人双击事件结束 ===")
+                    }
+                }
+            }
+        }
+    }
+
+    // 消息委托组件
+    Component {
+        id: messageDelegate1
+
+        Rectangle {
+            width: messagesList.width
+            height: messageContent1.height + 20
+            color: "transparent"
+
+            // 分界线 - 中间分隔线
+            Rectangle {
+                id: centerDivider
+                width: 2
+                height: parent.height
+                anchors.horizontalCenter: parent.horizontalCenter
+                color: themeManager.currentTheme.borderColor
+                opacity: 0.2
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 10
+                spacing: 10
+                layoutDirection: modelData.is_own ? Qt.RightToLeft : Qt.LeftToRight
+
+                // 头像
+                Rectangle {
+                    Layout.preferredWidth: 36
+                    Layout.preferredHeight: 36
+                    Layout.alignment: Qt.AlignTop
+                    color: modelData.is_own ? themeManager.currentTheme.primaryColor : themeManager.currentTheme.secondaryColor
+                    radius: 18
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: modelData.sender_avatar || "?"
+                        color: "white"
+                        font.pixelSize: 14
+                        font.weight: Font.Bold
+                    }
+                }
+
+                // 消息内容区域
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: messagesList.width * 0.45
+                    spacing: 4
+
+                    // 发送者和时间
+                    RowLayout {
+                        Layout.fillWidth: true
+                        layoutDirection: modelData.is_own ? Qt.RightToLeft : Qt.LeftToRight
+
+                        Text {
+                            text: modelData.sender_name || ""
+                            color: themeManager.currentTheme.textSecondaryColor
+                            font.pixelSize: 12
+                            font.weight: Font.Medium
+                        }
+
+                        Text {
+                            text: modelData.time || ""
+                            color: themeManager.currentTheme.textTertiaryColor
+                            font.pixelSize: 11
+                        }
+
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    // 消息气泡 - 改进的布局
+                    Rectangle {
+                        id: messageContent1
+                        Layout.preferredWidth: Math.min(messageText1.implicitWidth + 20, messagesList.width * 0.4)
+                        Layout.maximumWidth: messagesList.width * 0.4
+                        implicitHeight: messageText1.implicitHeight + 16
+                        color: modelData.is_own ? themeManager.currentTheme.primaryColor : themeManager.currentTheme.surfaceColor
+                        radius: 12
+                        border.color: modelData.is_own ? "transparent" : themeManager.currentTheme.borderColor
+                        border.width: modelData.is_own ? 0 : 1
+
+                        // 根据发送者调整对齐方式
+                        Layout.alignment: modelData.is_own ? Qt.AlignRight : Qt.AlignLeft
+
+                        Text {
+                            id: messageText1
+                            anchors.fill: parent
+                            anchors.margins: 8
+                            text: modelData.content || ""
+                            color: modelData.is_own ? "white" : themeManager.currentTheme.textPrimaryColor
+                            font.pixelSize: 14
+                            wrapMode: Text.Wrap
+                            verticalAlignment: Text.AlignVCenter
+                            horizontalAlignment: modelData.is_own ? Text.AlignRight : Text.AlignLeft
+                        }
+                    }
+
+                    // 消息状态
+                    Text {
+                        Layout.alignment: modelData.is_own ? Qt.AlignRight : Qt.AlignLeft
+                        visible: modelData.is_own
+                        text: {
+                            switch(modelData.delivery_status) {
+                                case "sent": return "已发送"
+                                case "delivered": return "已送达"
+                                case "read": return "已读"
+                                case "failed": return "发送失败"
+                                default: return ""
+                            }
+                        }
+                        color: themeManager.currentTheme.textTertiaryColor
+                        font.pixelSize: 10
+                    }
+                }
+
+                // 占位符，用于对齐
+                Item {
+                    Layout.preferredWidth: 36
+                    Layout.preferredHeight: 36
+                    visible: !modelData.is_own
+                }
+            }
+        }
     }
 
     // 好友列表项委托
@@ -1491,7 +1776,7 @@ Rectangle {
                     Layout.preferredHeight: 40
                     color: themeManager.currentTheme.primaryColor
                     radius: 20
-                    border.color: model.isOnline ? themeManager.currentTheme.successColor : themeManager.currentTheme.borderColor
+                    border.color: model.is_online ? themeManager.currentTheme.successColor : themeManager.currentTheme.borderColor
                     border.width: 2
 
                     Text {
@@ -1512,7 +1797,7 @@ Rectangle {
                         anchors.bottom: parent.bottom
                         anchors.rightMargin: -2
                         anchors.bottomMargin: -2
-                        color: model.isOnline ? themeManager.currentTheme.successColor : themeManager.currentTheme.borderColor
+                        color: model.is_online ? themeManager.currentTheme.successColor : themeManager.currentTheme.borderColor
                         border.color: themeManager.currentTheme.backgroundColor
                         border.width: 2
                     }
@@ -1532,7 +1817,7 @@ Rectangle {
                     }
 
                     Text {
-                        text: model.isOnline ? qsTr("在线") : qsTr("离线")
+                        text: model.is_online ? qsTr("在线") : qsTr("离线")
                         color: themeManager.currentTheme.textSecondaryColor
                         font.pixelSize: 12
                         elide: Text.ElideRight
@@ -1545,12 +1830,12 @@ Rectangle {
                     Layout.preferredHeight: 20
                     radius: 10
                     color: themeManager.currentTheme.primaryColor
-                    visible: model.unreadCount > 0
+                    visible: model.unread_count > 0
 
                     Text {
-                        id: unreadText
+                        id: unreadText2
                         anchors.centerIn: parent
-                        text: model.unreadCount > 99 ? "99+" : model.unreadCount.toString()
+                        text: model.unread_count > 99 ? "99+" : model.unread_count.toString()
                         color: "white"
                         font.pixelSize: 10
                         font.weight: Font.Bold
@@ -1566,8 +1851,12 @@ Rectangle {
 
                 onClicked: function(mouse) {
                     if (mouse.button === Qt.LeftButton) {
+                        console.log("Friend selected:", JSON.stringify(model))
                         mainPage.currentChatUser = model
-                        // Friend selected
+                        ChatMessageManager.setCurrentChatUser(model)
+                        
+                        // 添加到最近联系人
+                        addToRecentContacts(model)
                     } else if (mouse.button === Qt.RightButton) {
                         friendContextMenu.friendInfo = model
                         friendContextMenu.popup()
@@ -1576,8 +1865,12 @@ Rectangle {
 
                 onDoubleClicked: function(mouse) {
                     if (mouse.button === Qt.LeftButton) {
+                        console.log("Friend double clicked:", JSON.stringify(model))
                         mainPage.currentChatUser = model
-                        // Friend double clicked
+                        ChatMessageManager.setCurrentChatUser(model)
+                        
+                        // 添加到最近联系人
+                        addToRecentContacts(model)
                     }
                 }
             }
@@ -1719,116 +2012,6 @@ Rectangle {
         }
     }
 
-    // 消息列表项委托
-    Component {
-        id: messageDelegate
-
-        Rectangle {
-            width: messagesList.width
-            height: messageContent.height + 30
-            color: "transparent"
-
-            RowLayout {
-                anchors.fill: parent
-                anchors.margins: 10
-                spacing: 12
-                layoutDirection: model.isOwn ? Qt.RightToLeft : Qt.LeftToRight
-
-                // 头像
-                Rectangle {
-                    Layout.preferredWidth: 36
-                    Layout.preferredHeight: 36
-                    Layout.alignment: Qt.AlignTop
-                    color: model.isOwn ? themeManager.currentTheme.primaryColor : themeManager.currentTheme.secondaryColor
-                    radius: 18
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: model.avatar || (model.isOwn ? "我" : "U")
-                        color: "white"
-                        font.pixelSize: 14
-                        font.weight: Font.Bold
-                    }
-                }
-
-                // 消息内容区域
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Layout.maximumWidth: messagesList.width * 0.65
-                    spacing: 6
-
-                    // 发送者和时间信息
-                    RowLayout {
-                        Layout.fillWidth: true
-                        layoutDirection: model.isOwn ? Qt.RightToLeft : Qt.LeftToRight
-                        spacing: 8
-
-                        Text {
-                            text: model.sender || "未知用户"
-                            color: themeManager.currentTheme.textSecondaryColor
-                            font.pixelSize: 12
-                            font.weight: Font.Medium
-                            Layout.alignment: model.isOwn ? Qt.AlignRight : Qt.AlignLeft
-                        }
-
-                        Text {
-                            text: model.time || "00:00"
-                            color: themeManager.currentTheme.textTertiaryColor
-                            font.pixelSize: 11
-                            Layout.alignment: model.isOwn ? Qt.AlignRight : Qt.AlignLeft
-                        }
-
-                        Item {
-                            Layout.fillWidth: true
-                        }
-                    }
-
-                    // 消息气泡
-                    Rectangle {
-                        id: messageContent
-                        Layout.fillWidth: true
-                        Layout.alignment: model.isOwn ? Qt.AlignRight : Qt.AlignLeft
-                        implicitHeight: messageText.implicitHeight + 20
-                        implicitWidth: Math.min(messageText.implicitWidth + 20, messagesList.width * 0.65)
-                        color: model.isOwn ? themeManager.currentTheme.primaryColor : themeManager.currentTheme.surfaceColor
-                        radius: 12
-                        border.color: model.isOwn ? "transparent" : themeManager.currentTheme.borderColor
-                        border.width: model.isOwn ? 0 : 1
-
-                        // 添加阴影效果
-                        Rectangle {
-                            anchors.fill: parent
-                            anchors.topMargin: 2
-                            anchors.leftMargin: 2
-                            color: themeManager.currentTheme.shadowColor
-                            radius: parent.radius
-                            z: -1
-                            opacity: 0.1
-                        }
-
-                        Text {
-                            id: messageText
-                            anchors.fill: parent
-                            anchors.margins: 10
-                            text: model.content || ""
-                            color: model.isOwn ? "white" : themeManager.currentTheme.textPrimaryColor
-                            font.pixelSize: 14
-                            wrapMode: Text.Wrap
-                            verticalAlignment: Text.AlignVCenter
-                            horizontalAlignment: Text.AlignLeft
-                        }
-                    }
-                }
-
-                // 占位符，确保消息不会占满整个宽度
-                Item {
-                    Layout.fillWidth: true
-                    Layout.minimumWidth: messagesList.width * 0.2
-                }
-            }
-        }
-    }
-
     // 发送消息函数
     function sendMessage() {
         var messageText = messageInput.text.trim()
@@ -1836,29 +2019,46 @@ Rectangle {
             return
         }
 
-        var currentTime = new Date()
-        var timeString = currentTime.getHours().toString().padStart(2, '0') + ":" +
-                        currentTime.getMinutes().toString().padStart(2, '0')
+        if (!currentChatUser || (!currentChatUser.user_id && !currentChatUser.id)) {
+            messageDialog.showError("错误", "请先选择聊天对象")
+            return
+        }
 
-        // 添加到消息列表末尾（最新消息在底部）
-        messagesModel.append({
-            "sender": "我",
-            "content": messageText,
-            "time": timeString,
-            "isOwn": true,
-            "avatar": sessionManager && sessionManager.currentUser ?
-                     sessionManager.currentUser.username.charAt(0).toUpperCase() : "我"
-        })
-
+        // 通过ChatMessageManager发送消息
+        ChatMessageManager.sendMessage(messageText, "text")
+        
+        // 清空输入框
         messageInput.text = ""
-
-        // 自动滚动到底部显示新消息
-        Qt.callLater(function() {
-            messagesList.positionViewAtEnd()
-        })
-
-        // TODO: 发送消息到服务器
-        // Sending message
+    }
+    
+    // 添加到最近联系人函数
+    function addToRecentContacts(friendData) {
+        console.log("=== addToRecentContacts函数开始 ===")
+        console.log("传入的friendData字段检查:")
+        console.log("  user_id:", friendData.user_id)
+        console.log("  id:", friendData.id)
+        console.log("  username:", friendData.username)
+        console.log("  display_name:", friendData.display_name)
+        console.log("RecentContactsManager是否存在:", !!RecentContactsManager)
+        
+        if (RecentContactsManager) {
+            console.log("调用RecentContactsManager.addRecentContact...")
+            RecentContactsManager.addRecentContact(friendData)
+            console.log("RecentContactsManager.addRecentContact调用完成")
+            
+            // 检查最近联系人列表状态
+            console.log("最近联系人列表长度:", RecentContactsManager.recentContacts.length)
+            if (RecentContactsManager.recentContacts.length > 0) {
+                console.log("第一个联系人数据:")
+                var firstContact = RecentContactsManager.recentContacts[0]
+                console.log("  user_id:", firstContact.user_id)
+                console.log("  username:", firstContact.username)
+                console.log("  display_name:", firstContact.display_name)
+            }
+        } else {
+            console.error("RecentContactsManager不可用!")
+        }
+        console.log("=== addToRecentContacts函数结束 ===")
     }
 
     // 收缩模式的联系人委托
@@ -2374,7 +2574,14 @@ Rectangle {
         }
 
         onAccepted: {
-            messageDialog.showInfo("功能开发中", "删除好友功能正在开发中")
+            // 调用删除好友功能
+            var friendId = deleteFriendDialog.friendInfo.user_id || deleteFriendDialog.friendInfo.id || deleteFriendDialog.friendInfo.friend_id
+            if (friendId) {
+                console.log("删除好友:", friendId, deleteFriendDialog.friendInfo.display_name || deleteFriendDialog.friendInfo.username)
+                ChatNetworkClient.removeFriend(friendId)
+            } else {
+                messageDialog.showError("删除失败", "无法获取好友ID")
+            }
         }
     }
 
@@ -3018,8 +3225,8 @@ Rectangle {
         MenuItem {
             text: qsTr("删除好友")
             onTriggered: {
-                // Delete friend
-                // TODO: 实现删除好友功能
+                deleteFriendDialog.friendInfo = groupedFriendContextMenu.friendData
+                deleteFriendDialog.open()
             }
         }
     }
@@ -3176,6 +3383,35 @@ Rectangle {
             console.log("当前时间:", new Date().toISOString())
             refreshFriendData()
         }
+        
+        function onFriendRemoved(friendId) {
+            console.log("=== 好友被删除 ===")
+            console.log("被删除的好友ID:", friendId)
+            
+            // 从最近联系人中移除该好友
+            if (RecentContactsManager && typeof RecentContactsManager.removeRecentContact === 'function') {
+                RecentContactsManager.removeRecentContact(friendId)
+                console.log("已从最近联系人中移除好友:", friendId)
+            }
+            
+            // 清理该好友的聊天数据
+            if (ChatMessageManager && typeof ChatMessageManager.clearMessagesForUser === 'function') {
+                ChatMessageManager.clearMessagesForUser(friendId)
+                console.log("已清理好友的聊天数据:", friendId)
+            }
+            
+            // 如果当前聊天用户是被删除的好友，清空聊天区域
+            if (currentChatUser && (currentChatUser.user_id === friendId || currentChatUser.id === friendId || currentChatUser.friend_id === friendId)) {
+                console.log("当前聊天用户被删除，清空聊天区域")
+                currentChatUser = {}
+                ChatMessageManager.setCurrentChatUser({})
+            }
+            
+            // 刷新好友列表
+            refreshFriendData()
+            
+            messageDialog.showInfo("删除成功", "好友已删除，相关聊天记录也已清理")
+        }
     }
 
     // 群组右键菜单
@@ -3236,8 +3472,11 @@ Rectangle {
         MenuItem {
             text: qsTr("从最近联系中移除")
             onTriggered: {
-                // Remove from recent contacts
-                // TODO: 实现从最近联系中移除功能
+                var contactId = recentContextMenu.contactData.user_id || recentContextMenu.contactData.id || recentContextMenu.contactData.friend_id
+                if (contactId) {
+                    RecentContactsManager.removeRecentContact(contactId)
+                    messageDialog.showInfo("移除成功", "已从最近联系中移除")
+                }
             }
         }
     }
@@ -3438,8 +3677,6 @@ Rectangle {
         friendRequests = requests || []
         isLoadingRequests = false
     }
-    
-
 
     // 好友请求响应处理函数
     function onFriendRequestResponded(success, message) {
@@ -3454,16 +3691,86 @@ Rectangle {
     function onFriendListUpdated() {
         refreshFriendData()
     }
+    
+    // 消息处理函数
+            function onMessageReceived(message) {
+            console.log("Message received:", JSON.stringify(message))
+            
+            // 检查是否是好友删除通知
+            if (message && message.action === "friend_removed") {
+                console.log("收到好友删除通知:", message.remover_id)
+                // 刷新好友列表，因为可能被其他用户删除了好友关系
+                refreshFriendData()
+                messageDialog.showInfo("好友关系变更", "您与某位用户的好友关系已被对方删除")
+                return
+            }
+            
+            if (ChatMessageManager) {
+                ChatMessageManager.handleMessageReceived(message)
+            }
+        }
+    
+    function onMessageSent(messageId, success) {
+        console.log("Message sent:", messageId, success)
+        if (ChatMessageManager) {
+            ChatMessageManager.handleMessageSent(messageId, success)
+        }
+    }
+    
+    function onChatHistoryReceived(userId, messages) {
+        console.log("Chat history received for user:", userId, "messages count:", messages.length)
+        if (ChatMessageManager) {
+            ChatMessageManager.handleChatHistoryReceived(userId, messages)
+        }
+    }
+    
+    function onMessageStatusUpdated(messageId, status) {
+        console.log("Message status updated:", messageId, status)
+        if (ChatMessageManager) {
+            ChatMessageManager.handleMessageStatusUpdated(messageId, status)
+        }
+    }
+    
+    function onMessageSendResult(success, message) {
+        if (success) {
+            console.log("Message send success:", message)
+        } else {
+            console.error("Message send failed:", message)
+            if (message && message.includes("未加对方为好友")) {
+                messageDialog.showError("发送失败", "未加对方为好友，无法发送消息")
+            } else {
+                messageDialog.showError("发送失败", message)
+            }
+        }
+    }
+    
+    function onNewMessageReceived(message) {
+        console.log("New message received:", JSON.stringify(message))
+        // 可以在这里添加通知或其他UI更新
+    }
 
     // 组件初始化
     Component.onCompleted: {
-
+        console.log("MainPage Component.onCompleted")
         
         // 连接ChatNetworkClient信号
         if (ChatNetworkClient) {
             ChatNetworkClient.friendRequestResponded.connect(onFriendRequestResponded)
             ChatNetworkClient.friendListUpdated.connect(onFriendListUpdated)
             ChatNetworkClient.friendRequestsReceived.connect(onFriendRequestsReceived)
+            ChatNetworkClient.friendRemoved.connect(onFriendRemoved)
+            
+            // 连接消息相关信号
+            ChatNetworkClient.messageReceived.connect(onMessageReceived)
+            ChatNetworkClient.messageSent.connect(onMessageSent)
+            ChatNetworkClient.chatHistoryReceived.connect(onChatHistoryReceived)
+            ChatNetworkClient.messageStatusUpdated.connect(onMessageStatusUpdated)
+        }
+        
+        // 连接ChatMessageManager信号
+        if (ChatMessageManager) {
+            ChatMessageManager.messageSendResult.connect(onMessageSendResult)
+            ChatMessageManager.newMessageReceived.connect(onNewMessageReceived)
         }
         
         // 检查是否已经有好友数据，如果没有则发送请求
@@ -3497,5 +3804,3 @@ Rectangle {
         addFriendWindowVisible = false
     }
 }
-
-

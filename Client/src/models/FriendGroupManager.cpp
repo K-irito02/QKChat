@@ -1,4 +1,5 @@
 #include "FriendGroupManager.h"
+#include "RecentContactsManager.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -123,6 +124,16 @@ void FriendGroupManager::handleFriendListReceived(const QJsonArray& friends)
 {
     _rawFriendList = friends;
     updateFriendGroupsData();
+    
+    // 过滤最近联系人，只保留有效的好友
+    auto recentManager = RecentContactsManager::instance();
+    if (recentManager) {
+        QVariantList friendList;
+        for (const QJsonValue& value : friends) {
+            friendList.append(value.toObject().toVariantMap());
+        }
+        recentManager->filterByFriendList(friendList);
+    }
 }
 
 void FriendGroupManager::handleRecentContactsReceived(const QJsonArray& contacts)

@@ -69,16 +69,14 @@ bool EmailService::initialize(const QString &smtpServer, int smtpPort,
         _useTLS = true;
     }
     
-    LOG_INFO(QString("Configuring SMTP client: port=%1, useTLS=%2, useStartTLS=%3")
-             .arg(_smtpPort).arg(_useTLS).arg(useStartTls));
+
     
     _smtpClient->configure(_smtpServer, _smtpPort, _username, _password, _useTLS, useStartTls);
     _smtpClient->setConnectionTimeout(30000);
 
     _initialized = true;
 
-    LOG_INFO(QString("Email service initialized: %1:%2 (TLS: %3)")
-             .arg(_smtpServer).arg(_smtpPort).arg(_useTLS ? "Yes" : "No"));
+
 
     return true;
 }
@@ -199,7 +197,7 @@ void EmailService::setCodeExpiration(int minutes)
 {
     _codeExpiration = minutes;
     
-    LOG_INFO(QString("Verification code expiration updated: %1 minutes").arg(minutes));
+
 }
 
 // 移除自动清理功能，由客户端控制验证码发送

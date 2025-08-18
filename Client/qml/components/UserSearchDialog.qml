@@ -418,14 +418,58 @@ Window {
                                         
                                         Text {
                                             text: {
-                                                if (modelData.status === "rejected") {
-                                                    return "好友请求已被拒绝"
-                                                } else if (modelData.status === "accepted") {
-                                                    return "好友请求已同意"
-                                                } else if (modelData.status === "ignored") {
-                                                    return "好友请求已被忽略"
+                                                // 根据request_type和status来显示正确的信息
+                                                if (modelData.request_type === "received") {
+                                                    // 我收到的申请
+                                                    if (modelData.status === "pending") {
+                                                        return modelData.message || "请求添加您为好友"
+                                                    } else if (modelData.status === "accepted") {
+                                                        return "您已同意该好友请求"
+                                                    } else if (modelData.status === "rejected") {
+                                                        return "您已拒绝该好友请求"
+                                                    } else if (modelData.status === "ignored") {
+                                                        return "您已忽略该好友请求"
+                                                    }
+                                                } else if (modelData.request_type === "sent") {
+                                                    // 我发送的申请
+                                                    if (modelData.status === "pending") {
+                                                        return "等待对方处理"
+                                                    } else if (modelData.status === "cancelled") {
+                                                        return "您已取消该好友请求"
+                                                    }
+                                                } else if (modelData.request_type === "sent_processed") {
+                                                    // 我发送的已处理申请
+                                                    if (modelData.status === "accepted") {
+                                                        return "对方已同意您的好友请求"
+                                                    } else if (modelData.status === "rejected") {
+                                                        return "对方已拒绝您的好友请求"
+                                                    } else if (modelData.status === "ignored") {
+                                                        return "对方已忽略您的好友请求"
+                                                    } else if (modelData.status === "cancelled") {
+                                                        return "您已取消该好友请求"
+                                                    }
+                                                } else if (modelData.request_type === "received_processed") {
+                                                    // 我收到的已处理申请
+                                                    if (modelData.status === "accepted") {
+                                                        return "您已同意该好友请求"
+                                                    } else if (modelData.status === "rejected") {
+                                                        return "您已拒绝该好友请求"
+                                                    } else if (modelData.status === "ignored") {
+                                                        return "您已忽略该好友请求"
+                                                    }
                                                 } else {
-                                                    return modelData.message || "请求添加您为好友"
+                                                    // 兼容旧版本
+                                                    if (modelData.status === "rejected") {
+                                                        return "好友请求已被拒绝"
+                                                    } else if (modelData.status === "accepted") {
+                                                        return "好友请求已同意"
+                                                    } else if (modelData.status === "ignored") {
+                                                        return "好友请求已被忽略"
+                                                    } else if (modelData.status === "cancelled") {
+                                                        return "好友请求已被取消"
+                                                    } else {
+                                                        return modelData.message || "请求添加您为好友"
+                                                    }
                                                 }
                                             }
                                             color: {
@@ -445,7 +489,8 @@ Window {
                                         // 状态图标
                                         RowLayout {
                                             spacing: 4
-                                            visible: modelData.status === "accepted" || modelData.status === "rejected" || modelData.status === "ignored"
+                                            visible: (modelData.status === "accepted" || modelData.status === "rejected" || modelData.status === "ignored") && 
+                                                     (modelData.request_type === "sent_processed" || modelData.request_type === "received_processed")
                                             
                                             Rectangle {
                                                 Layout.preferredWidth: 16
@@ -507,12 +552,12 @@ Window {
                                     RowLayout {
                                         spacing: 6
                                         
-                                        // 待处理状态：显示详情、忽略、同意、拒绝按钮
+                                        // 详情按钮 - 仅对收到的待处理申请显示
                                         Button {
                                             Layout.preferredWidth: 50
                                             Layout.preferredHeight: 28
                                             text: qsTr("详情")
-                                            visible: modelData.status === "pending"
+                                            visible: modelData.status === "pending" && modelData.request_type === "received"
                                             
                                             background: Rectangle {
                                                 color: parent.pressed ? Qt.darker(themeManager.currentTheme.borderColor, 1.2) :
@@ -533,11 +578,29 @@ Window {
                                             onClicked: viewUserDetail(modelData)
                                         }
                                         
+                                        // 忽略按钮 - 对所有类型的好友申请都可以忽略
                                         Button {
                                             Layout.preferredWidth: 50
                                             Layout.preferredHeight: 28
-                                            text: qsTr("忽略")
-                                            visible: modelData.status === "pending"
+                                            text: {
+                                                // 根据申请类型和状态显示不同的文本
+                                                if (modelData.request_type === "sent" && modelData.status === "pending") {
+                                                    return qsTr("取消") // 我发送的待处理申请
+                                                } else if (modelData.request_type === "received" && modelData.status === "pending") {
+                                                    return qsTr("忽略") // 我收到的待处理申请
+                                                } else {
+                                                    return qsTr("忽略") // 其他所有情况（清理通知）
+                                                }
+                                            }
+                                            visible: {
+                                                // 显示条件：
+                                                // 1. 我发送的待处理申请 - 显示"取消"
+                                                // 2. 我收到的待处理申请 - 显示"忽略"
+                                                // 3. 已处理的申请 - 显示"忽略"（清理通知）
+                                                return (modelData.request_type === "sent" && modelData.status === "pending") ||
+                                                       (modelData.request_type === "received" && modelData.status === "pending") ||
+                                                       (modelData.request_type === "sent_processed" || modelData.request_type === "received_processed")
+                                            }
                                             
                                             background: Rectangle {
                                                 color: parent.pressed ? Qt.darker(themeManager.currentTheme.textSecondaryColor, 1.2) :
@@ -558,11 +621,12 @@ Window {
                                             onClicked: ignoreFriendRequest(modelData)
                                         }
                                         
+                                        // 同意按钮 - 仅对收到的待处理申请显示
                                         Button {
                                             Layout.preferredWidth: 50
                                             Layout.preferredHeight: 28
                                             text: qsTr("同意")
-                                            visible: modelData.status === "pending"
+                                            visible: modelData.status === "pending" && modelData.request_type === "received"
                                             
                                             background: Rectangle {
                                                 color: parent.pressed ? Qt.darker(themeManager.currentTheme.primaryColor, 1.2) :
@@ -583,11 +647,12 @@ Window {
                                             onClicked: showAcceptFriendDialog(modelData)
                                         }
                                         
+                                        // 拒绝按钮 - 仅对收到的待处理申请显示
                                         Button {
                                             Layout.preferredWidth: 50
                                             Layout.preferredHeight: 28
                                             text: qsTr("拒绝")
-                                            visible: modelData.status === "pending"
+                                            visible: modelData.status === "pending" && modelData.request_type === "received"
                                             
                                             background: Rectangle {
                                                 color: parent.pressed ? Qt.darker(themeManager.currentTheme.textSecondaryColor, 1.2) :
@@ -606,33 +671,6 @@ Window {
                                             }
                                             
                                             onClicked: rejectFriendRequest(modelData)
-                                        }
-                                        
-                                        // 已响应状态：根据状态显示不同按钮
-                                        // 接受和拒绝状态显示忽略按钮，忽略状态不显示任何按钮
-                                        Button {
-                                            Layout.preferredWidth: 50
-                                            Layout.preferredHeight: 28
-                                            text: qsTr("忽略")
-                                            visible: modelData.status === "accepted" || modelData.status === "rejected"
-                                            
-                                            background: Rectangle {
-                                                color: parent.pressed ? Qt.darker(themeManager.currentTheme.textSecondaryColor, 1.2) :
-                                                       parent.hovered ? Qt.lighter(themeManager.currentTheme.textSecondaryColor, 1.1) :
-                                                       themeManager.currentTheme.textSecondaryColor
-                                                radius: 4
-                                            }
-                                            
-                                            contentItem: Text {
-                                                text: parent.text
-                                                color: "white"
-                                                font.pixelSize: 11
-                                                font.weight: Font.Medium
-                                                horizontalAlignment: Text.AlignHCenter
-                                                verticalAlignment: Text.AlignVCenter
-                                            }
-                                            
-                                            onClicked: ignoreFriendRequest(modelData)
                                         }
                                     }
                                 }
@@ -808,8 +846,22 @@ Window {
             // 确保request_id是数字类型
             var requestId = parseInt(requestData.request_id)
             console.log("转换后的request_id:", requestId, "类型:", typeof requestId)
+            console.log("申请类型:", requestData.request_type, "状态:", requestData.status)
             
-            networkClient.ignoreFriendRequest(requestId)
+            // 根据申请类型和状态决定处理方式
+            if (requestData.request_type === "sent" && requestData.status === "pending") {
+                // 我发送的待处理申请 - 取消申请
+                console.log("取消我发送的好友申请")
+                networkClient.ignoreFriendRequest(requestId)
+            } else if (requestData.request_type === "received" && requestData.status === "pending") {
+                // 我收到的待处理申请 - 忽略申请
+                console.log("忽略我收到的好友申请")
+                networkClient.ignoreFriendRequest(requestId)
+            } else {
+                // 已处理的申请 - 清理通知记录
+                console.log("清理已处理的好友申请通知")
+                networkClient.ignoreFriendRequest(requestId)
+            }
             
             // 立即从列表中移除该请求
             var index = friendRequests.findIndex(function(item) {
@@ -819,6 +871,20 @@ Window {
                 var newRequests = friendRequests.slice()
                 newRequests.splice(index, 1)
                 friendRequests = newRequests
+            }
+            
+            // 显示相应的提示信息
+            var actionText
+            if (requestData.request_type === "sent" && requestData.status === "pending") {
+                actionText = "已取消"
+            } else if (requestData.request_type === "received" && requestData.status === "pending") {
+                actionText = "已忽略"
+            } else {
+                actionText = "已清理"
+            }
+            
+            if (messageDialog) {
+                messageDialog.showInfo("操作成功", "好友申请" + actionText)
             }
         }
     }
@@ -1240,3 +1306,4 @@ Window {
         }
     }
 }
+

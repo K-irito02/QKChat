@@ -279,7 +279,7 @@ void SessionManager::onSessionTimeout()
 void SessionManager::onSessionExpiringWarning()
 {
     int remainingSeconds = _sessionTimeout - _loginTime.secsTo(QDateTime::currentDateTime());
-    LOG_INFO(QString("Session expiring in %1 seconds").arg(remainingSeconds));
+
     emit sessionExpiring(remainingSeconds);
 }
 

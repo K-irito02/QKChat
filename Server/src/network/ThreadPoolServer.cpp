@@ -366,7 +366,8 @@ void ThreadPoolServer::onClientMessageReceived(ClientHandler* client, const QJso
     
     // 处理聊天消息
     if (action.startsWith("friend_") || action.startsWith("message_") || 
-        action.startsWith("status_") || action == "heartbeat") {
+        action.startsWith("status_") || action == "heartbeat" ||
+        action == "send_message" || action == "get_chat_history" || action == "get_chat_sessions") {
         
         // 路由聊天消息到协议处理器
         

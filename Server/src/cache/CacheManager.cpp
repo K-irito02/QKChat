@@ -329,7 +329,7 @@ void CacheManager::loadHotDataFromDatabase()
             _hotDataLastAccess[key] = lastAccess.toSecsSinceEpoch();
         }
         
-        LOG_INFO(QString("Loaded %1 hot data records from database").arg(rows.size()));
+    
     }
 }
 
@@ -459,7 +459,7 @@ void CacheManager::cleanupExpiredCache()
     }
     
     if (!expiredKeys.isEmpty()) {
-        LOG_INFO(QString("Cleaned up %1 expired cache entries").arg(expiredKeys.size()));
+    
     }
 }
 

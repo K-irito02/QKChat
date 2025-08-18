@@ -25,6 +25,10 @@ qt_add_executable(appClient
     src/models/AuthResponse.cpp
     src/models/FriendGroupManager.h
     src/models/FriendGroupManager.cpp
+    src/models/ChatMessageManager.h
+    src/models/ChatMessageManager.cpp
+    src/models/RecentContactsManager.h
+    src/models/RecentContactsManager.cpp
     src/utils/Validator.h
     src/utils/Validator.cpp
     src/utils/Crypto.h

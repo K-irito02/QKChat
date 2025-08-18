@@ -121,8 +121,7 @@ void ChatNetworkClient::respondToFriendRequestWithSettings(qint64 requestId, boo
 void ChatNetworkClient::ignoreFriendRequest(qint64 requestId)
 {
     QJsonObject data;
-    data["request_id"] = requestId;
-    data["action"] = "ignore";
+    data["friend_request_id"] = requestId;
     
     sendRequest("friend_ignore", data);
 }
@@ -358,13 +357,14 @@ void ChatNetworkClient::onNetworkResponse(const QJsonObject& response)
     // 检查是否为聊天相关的响应
     if (action.startsWith("friend_") || action.startsWith("message_") || 
         action.startsWith("status_") || action == "heartbeat_response" ||
-        action == "send_message_response" || action == "get_chat_history_response") {
+        action == "send_message_response" || action == "get_chat_history_response" ||
+        action == "get_chat_history" || action == "friend_ignore_response") {
         
         if (action.startsWith("friend_")) {
             handleFriendResponse(response);
         } else if (action.startsWith("status_") || action == "heartbeat_response") {
             handleStatusResponse(response);
-        } else if (action.startsWith("message_") || action == "send_message_response" || action == "get_chat_history_response") {
+        } else if (action.startsWith("message_") || action == "send_message_response" || action == "get_chat_history_response" || action == "get_chat_history") {
             handleMessageResponse(response);
         }
     } else {
@@ -411,15 +411,15 @@ void ChatNetworkClient::sendRequest(const QString& action, const QJsonObject& da
         request["session_token"] = _networkClient->sessionToken();
     }
 
-    // 合并数据，但保护friend_request_id字段不被覆盖
+    // 合并数据，但保护特定字段不被覆盖
     for (auto it = data.begin(); it != data.end(); ++it) {
-        // 不要覆盖friend_request_id字段，因为它包含数据库的friend request ID
-        if (it.key() != "friend_request_id") {
+        // 不要覆盖特定字段，因为它们包含数据库的ID
+        if (it.key() != "friend_request_id" && it.key() != "request_id") {
             request[it.key()] = it.value();
         }
     }
     
-    // 单独处理friend_request_id字段
+    // 单独处理特殊字段
     if (data.contains("friend_request_id")) {
         request["friend_request_id"] = data["friend_request_id"];
     }
@@ -447,6 +447,17 @@ void ChatNetworkClient::handleFriendResponse(const QJsonObject& response)
         if (success) {
             QJsonArray requests = response["data"]["requests"].toArray();
             emit friendRequestsReceived(requests);
+        }
+    } else if (action == "friend_ignore_response") {
+        if (success) {
+            qint64 requestId = response["data"]["request_id"].toVariant().toLongLong();
+            QString message = response["data"]["message"].toString();
+        
+            emit friendRequestIgnored(requestId, 0, "", "", "");
+        } else {
+            QString errorMessage = response["error_message"].toString();
+            QString errorCode = response["error_code"].toString();
+            LOG_ERROR(QString("忽略好友请求失败 - 代码: %1, 消息: %2").arg(errorCode).arg(errorMessage));
         }
     } else if (action == "friend_remove_response") {
         if (success) {
@@ -584,7 +595,7 @@ void ChatNetworkClient::handleMessageResponse(const QJsonObject& response)
         } else {
             emit messageSent("", false);
         }
-    } else if (action == "get_chat_history_response") {
+    } else if (action == "get_chat_history_response" || action == "get_chat_history") {
         if (success) {
             qint64 userId = response["data"]["chat_user_id"].toVariant().toLongLong();
             QJsonArray messages = response["data"]["messages"].toArray();

@@ -4,6 +4,8 @@
 #include "../utils/Crypto.h"
 #include "../models/User.h"
 #include "../chat/ChatNetworkClient.h"
+#include "../models/RecentContactsManager.h"
+#include "../models/ChatMessageManager.h"
 #include <QJsonDocument>
 #include <QMutexLocker>
 #include <QThread>
@@ -410,7 +412,7 @@ void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &r
             // 保存服务器分配的client_id
             if (!clientId.isEmpty()) {
                 _networkClient->setClientId(clientId);
-                LOG_INFO(QString("Client ID saved: %1").arg(clientId));
+            
             } else {
                 LOG_WARNING("Server did not provide client_id in login response");
             }
@@ -422,7 +424,15 @@ void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &r
         setAuthState(Idle);
         
         // 发送登录成功信号
-                emit loginSucceeded(user);
+        emit loginSucceeded(user);
+
+        // 登录成功后只清理聊天消息，保留最近联系人数据
+        QTimer::singleShot(500, [this]() {
+            auto chatManager = ChatMessageManager::instance();
+            if (chatManager) {
+                chatManager->clearMessages();
+            }
+        });
 
         // 登录成功后立即初始化ChatNetworkClient并发送好友列表请求
         ChatNetworkClient* chatClient = ChatNetworkClient::instance();
