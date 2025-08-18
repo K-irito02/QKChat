@@ -14,6 +14,7 @@ FriendListView 1.0 FriendListView.qml
 FriendListItem 1.0 FriendListItem.qml
 ChatView 1.0 ChatView.qml
 MessageBubble 1.0 MessageBubble.qml
+MessageAnimation 1.0 MessageAnimation.qml
 
 # 添加好友相关组件
 UserSearchDialog 1.0 UserSearchDialog.qml

@@ -21,6 +21,7 @@
         <file>qml/components/FriendListItem.qml</file>
         <file>qml/components/ChatView.qml</file>
         <file>qml/components/MessageBubble.qml</file>
+        <file>qml/components/MessageAnimation.qml</file>
         <file>qml/components/UserSearchDialog.qml</file>
         <file>qml/components/UserSearchResultItem.qml</file>
         <file>qml/components/AddFriendConfirmDialog.qml</file>

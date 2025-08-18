@@ -245,29 +245,24 @@ Item {
                     }
                 }
                 
-                // 消息状态指示器（自己的消息）
+                // 消息状态指示器（自己的消息）- 只显示失败状态
                 Row {
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
                     anchors.margins: 4
                     spacing: 2
-                    visible: isOwnMessage
+                    visible: isOwnMessage && messageInfo.delivery_status === "failed"
                     
+                    // 发送失败时的红色感叹号
                     Text {
-                        text: {
-                            switch (messageInfo.status) {
-                                case "sent": return "✓"
-                                case "delivered": return "✓✓"
-                                case "read": return "✓✓"
-                                case "failed": return "✗"
-                                default: return "○"
-                            }
-                        }
-                        color: messageInfo.status === "read" ? ThemeManager.accentColor : 
-                               messageInfo.status === "failed" ? ThemeManager.errorColor : ThemeManager.secondaryTextColor
-                        font.pixelSize: 10
+                        text: "❌"
+                        color: ThemeManager.errorColor
+                        font.pixelSize: 12
+                        font.weight: Font.Bold
                     }
                 }
+                
+                // 发送中状态指示器 - 已移除旋转动画
             }
             
             // 时间戳

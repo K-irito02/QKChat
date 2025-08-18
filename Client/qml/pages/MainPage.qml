@@ -1099,16 +1099,34 @@ Rectangle {
                             model: ChatMessageManager.messages
                             delegate: messageDelegate1
                             spacing: 8
-                            verticalLayoutDirection: ListView.BottomToTop
+                            verticalLayoutDirection: ListView.TopToBottom
                             
-                            // 自动滚动到底部（新消息）
+                            // 用户滚动状态跟踪
+                            property bool userScrolling: false
+                            property int lastContentY: 0
+                            
+                            // 检测用户滚动
+                            onContentYChanged: {
+                                if (!userScrolling && Math.abs(contentY - lastContentY) > 10) {
+                                    userScrolling = true
+                                    // 用户开始滚动，3秒后重置状态
+                                    mainPageScrollResetTimer.restart()
+                                }
+                                lastContentY = contentY
+                            }
+                            
+                            // 自动滚动到底部（新消息）- 只在用户没有主动滚动时
                             onCountChanged: {
                                 Qt.callLater(function() {
-                                    if (count > 0) {
+                                    if (count > 0 && !userScrolling) {
                                         positionViewAtEnd()
                                     }
                                 })
                             }
+                            
+                            // 平滑滚动配置
+                            boundsBehavior: Flickable.StopAtBounds
+                            flickDeceleration: 1500
                             
                             // 空状态提示
                             Label {
@@ -1117,6 +1135,15 @@ Rectangle {
                                 text: "暂无聊天记录"
                                 color: themeManager.currentTheme.textSecondaryColor
                                 font.pixelSize: 14
+                            }
+                        }
+                        
+                        // MainPage滚动重置定时器
+                        Timer {
+                            id: mainPageScrollResetTimer
+                            interval: 3000
+                            onTriggered: {
+                                messagesList.userScrolling = false
                             }
                         }
                     }
@@ -1635,22 +1662,29 @@ Rectangle {
                         }
                     }
 
-                    // 消息状态
-                    Text {
+                    // 消息状态 - 只显示失败状态
+                    RowLayout {
                         Layout.alignment: modelData.is_own ? Qt.AlignRight : Qt.AlignLeft
-                        visible: modelData.is_own
-                        text: {
-                            switch(modelData.delivery_status) {
-                                case "sent": return "已发送"
-                                case "delivered": return "已送达"
-                                case "read": return "已读"
-                                case "failed": return "发送失败"
-                                default: return ""
-                            }
+                        spacing: 4
+                        visible: modelData.is_own && modelData.delivery_status === "failed"
+                        layoutDirection: modelData.is_own ? Qt.RightToLeft : Qt.LeftToRight
+
+                        Text {
+                            text: "发送失败"
+                            color: themeManager.currentTheme.errorColor
+                            font.pixelSize: 10
+                            font.weight: Font.Medium
                         }
-                        color: themeManager.currentTheme.textTertiaryColor
-                        font.pixelSize: 10
+
+                        Text {
+                            text: "❌"
+                            color: themeManager.currentTheme.errorColor
+                            font.pixelSize: 12
+                            font.weight: Font.Bold
+                        }
                     }
+                    
+                    // 发送中状态 - 已移除旋转动画
                 }
 
                 // 占位符，用于对齐
@@ -3327,6 +3361,18 @@ Rectangle {
                     RecentContactsManager.removeRecentContact(contactId)
                     messageDialog.showInfo("移除成功", "已从最近联系中移除")
                 }
+            }
+        }
+        
+        MenuSeparator {}
+        
+        MenuItem {
+            text: qsTr("清理无效联系人")
+            onTriggered: {
+                messageDialog.showConfirm("确认清理", "是否清理所有无效的联系人？这将移除已删除好友的聊天记录。", function() {
+                    RecentContactsManager.cleanExpiredInvalidContacts()
+                    messageDialog.showInfo("清理完成", "已清理所有无效联系人")
+                })
             }
         }
     }

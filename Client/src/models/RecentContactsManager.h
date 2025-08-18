@@ -39,6 +39,9 @@ public:
     Q_INVOKABLE void refreshRecentContacts();
     Q_INVOKABLE void filterByFriendList(const QVariantList& friendList);
     Q_INVOKABLE void clearInvalidContacts();
+    Q_INVOKABLE void cleanExpiredInvalidContacts(); // 清理过期的无效联系人
+    Q_INVOKABLE void removeInvalidContact(qint64 userId); // 移除指定的无效联系人
+    Q_INVOKABLE void loadDataAfterLogin(); // 登录后加载数据
     QString getRecentContactsFilePath();
     
     // 获取单例实例
@@ -56,6 +59,7 @@ signals:
 
 private slots:
     void onAutoSaveTimer();
+    void onCleanupTimer(); // 定期清理定时器回调
 
 private:
     // 数据成员
@@ -64,6 +68,7 @@ private:
     
     // 辅助成员
     QTimer* _autoSaveTimer;
+    QTimer* _cleanupTimer; // 定期清理定时器
     
     // 单例相关
     static RecentContactsManager* s_instance;

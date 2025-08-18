@@ -51,6 +51,7 @@ public:
     Q_INVOKABLE void handleMessageSent(const QString& messageId, bool success);
     Q_INVOKABLE void handleChatHistoryReceived(qint64 userId, const QJsonArray& messages);
     Q_INVOKABLE void handleMessageStatusUpdated(const QString& messageId, const QString& status);
+    Q_INVOKABLE void handleOfflineMessagesReceived(const QJsonArray& messages);
     
     // 获取单例实例
     static ChatMessageManager* instance();

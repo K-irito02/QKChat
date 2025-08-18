@@ -26,10 +26,29 @@ RecentContactsManager::RecentContactsManager(QObject *parent)
     connect(_autoSaveTimer, &QTimer::timeout, this, &RecentContactsManager::onAutoSaveTimer);
     _autoSaveTimer->start();
     
-    // 加载本地数据
-    loadFromLocal();
+    // 初始化定期清理定时器（每天清理一次）
+    _cleanupTimer = new QTimer(this);
+    _cleanupTimer->setInterval(24 * 60 * 60 * 1000); // 24小时
+    _cleanupTimer->setSingleShot(false);
+    connect(_cleanupTimer, &QTimer::timeout, this, &RecentContactsManager::onCleanupTimer);
+    _cleanupTimer->start();
     
-
+    // 连接NetworkClient的认证状态变化信号
+    auto networkClient = NetworkClient::instance();
+    if (networkClient) {
+        // 监听认证状态变化，在用户登录后加载数据
+        connect(networkClient, &NetworkClient::connectionStateChanged, this, [this](NetworkClient::ConnectionState state) {
+            if (state == NetworkClient::Connected) {
+                // 连接成功后，检查是否已认证
+                auto client = NetworkClient::instance();
+                if (client && client->isAuthenticated() && client->userId() > 0) {
+                    loadDataAfterLogin();
+                }
+            }
+        });
+    }
+    
+    // 不再在构造函数中加载数据，等待用户登录后再加载
 }
 
 RecentContactsManager* RecentContactsManager::instance()
@@ -63,14 +82,38 @@ void RecentContactsManager::addRecentContact(const QVariantMap& contact)
     // 检查是否已存在
     int existingIndex = findContactIndex(userId);
     if (existingIndex >= 0) {
+        // 如果联系人已存在，更新消息内容（如果提供了的话）
+        if (contact.contains("last_message")) {
+            QVariantMap existingContact = _recentContacts[existingIndex].toMap();
+            
+            existingContact["last_message"] = contact.value("last_message");
+            existingContact["last_message_time"] = contact.value("last_message_time");
+            existingContact["updated_at"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+            _recentContacts[existingIndex] = existingContact;
+        }
+        
         // 移动到顶部
         moveToTop(existingIndex);
-    
+        
+        emit recentContactsChanged();
+        emit contactUpdated(userId);
+        
+        // 立即保存到本地文件
+        QTimer::singleShot(0, this, [this]() {
+            saveToLocal();
+        });
+        
         return;
     }
     
     // 创建联系人数据
     QVariantMap contactData = createContactData(contact);
+    
+    // 如果传入的contact数据中包含消息内容，直接设置
+    if (contact.contains("last_message")) {
+        contactData["last_message"] = contact.value("last_message");
+        contactData["last_message_time"] = contact.value("last_message_time");
+    }
     
     // 添加到列表顶部
     _recentContacts.prepend(contactData);
@@ -127,7 +170,7 @@ void RecentContactsManager::updateLastMessage(qint64 userId, const QString& mess
         // 移动到顶部
         moveToTop(index);
         
-    
+        LOG_INFO(QString("Updated last message for user %1: '%2' at %3").arg(userId).arg(message).arg(time));
         
         emit recentContactsChanged();
         emit contactUpdated(userId);
@@ -136,6 +179,8 @@ void RecentContactsManager::updateLastMessage(qint64 userId, const QString& mess
         QTimer::singleShot(0, this, [this]() {
             saveToLocal();
         });
+    } else {
+        LOG_WARNING(QString("Cannot update last message: user %1 not found in recent contacts").arg(userId));
     }
 }
 
@@ -205,23 +250,31 @@ void RecentContactsManager::filterByFriendList(const QVariantList& friendList)
         }
     }
     
-
-    
-    // 过滤最近联系人，只保留有效的好友
+    // 智能过滤最近联系人，保留有效的好友
+    // 对于无效联系人，标记为无效但不立即删除，给用户重新添加好友/手动删除的机会
     bool hasChanges = false;
-    for (int i = _recentContacts.size() - 1; i >= 0; --i) {
+    for (int i = 0; i < _recentContacts.size(); ++i) {
         QVariantMap contact = _recentContacts[i].toMap();
         qint64 contactId = contact.value("user_id").toLongLong();
         
         if (!validFriendIds.contains(contactId)) {
-
-            _recentContacts.removeAt(i);
+            // 标记为无效联系人，但不立即删除
+            contact["is_invalid"] = true;
+            contact["invalid_since"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+            _recentContacts[i] = contact;
             hasChanges = true;
+        } else {
+            // 如果是有效好友，清除无效标记
+            if (contact.contains("is_invalid")) {
+                contact.remove("is_invalid");
+                contact.remove("invalid_since");
+                _recentContacts[i] = contact;
+                hasChanges = true;
+            }
         }
     }
     
     if (hasChanges) {
-    
         emit recentContactsChanged();
         
         // 延迟保存，避免在信号处理中调用
@@ -262,6 +315,77 @@ void RecentContactsManager::clearInvalidContacts()
 void RecentContactsManager::onAutoSaveTimer()
 {
     saveToLocal();
+}
+
+void RecentContactsManager::onCleanupTimer()
+{
+    cleanExpiredInvalidContacts();
+}
+
+void RecentContactsManager::cleanExpiredInvalidContacts()
+{
+    QMutexLocker locker(&_mutex);
+    
+    // 清理超过7天的无效联系人
+    QDateTime cutoffTime = QDateTime::currentDateTime().addDays(-7);
+    bool hasChanges = false;
+    
+    for (int i = _recentContacts.size() - 1; i >= 0; --i) {
+        QVariantMap contact = _recentContacts[i].toMap();
+        
+        if (contact.value("is_invalid", false).toBool()) {
+            QString invalidSinceStr = contact.value("invalid_since").toString();
+            QDateTime invalidSince = QDateTime::fromString(invalidSinceStr, Qt::ISODate);
+            
+            if (invalidSince.isValid() && invalidSince < cutoffTime) {
+                _recentContacts.removeAt(i);
+                hasChanges = true;
+            }
+        }
+    }
+    
+    if (hasChanges) {
+        emit recentContactsChanged();
+        
+        // 延迟保存
+        QTimer::singleShot(0, this, [this]() {
+            saveToLocal();
+        });
+    }
+}
+
+void RecentContactsManager::removeInvalidContact(qint64 userId)
+{
+    QMutexLocker locker(&_mutex);
+    
+    for (int i = _recentContacts.size() - 1; i >= 0; --i) {
+        QVariantMap contact = _recentContacts[i].toMap();
+        qint64 contactId = contact.value("user_id").toLongLong();
+        
+        if (contactId == userId && contact.value("is_invalid", false).toBool()) {
+            _recentContacts.removeAt(i);
+            emit recentContactsChanged();
+            
+            // 延迟保存
+            QTimer::singleShot(0, this, [this]() {
+                saveToLocal();
+            });
+            break;
+        }
+    }
+}
+
+void RecentContactsManager::loadDataAfterLogin()
+{
+    // 检查用户是否已登录
+    auto networkClient = NetworkClient::instance();
+    if (!networkClient || !networkClient->isAuthenticated() || networkClient->userId() <= 0) {
+        LOG_WARNING("Cannot load recent contacts data: user not authenticated");
+        return;
+    }
+    
+    LOG_INFO(QString("Loading recent contacts data for user %1").arg(networkClient->userId()));
+    loadFromLocal();
 }
 
 void RecentContactsManager::setIsLoading(bool loading)
@@ -335,7 +459,34 @@ void RecentContactsManager::loadFromLocal()
         
         QFile file(filePath);
         if (!file.exists()) {
-        
+            // 文件不存在时，尝试加载默认文件（兼容旧版本）
+            QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/recent_contacts.json";
+            QFile defaultFile(defaultPath);
+            if (defaultFile.exists() && defaultFile.open(QIODevice::ReadOnly)) {
+                QByteArray data = defaultFile.readAll();
+                defaultFile.close();
+                
+                QJsonDocument doc = QJsonDocument::fromJson(data);
+                if (doc.isArray()) {
+                    QJsonArray jsonArray = doc.array();
+                    
+                    _recentContacts.clear();
+                    for (const auto& value : jsonArray) {
+                        if (value.isObject()) {
+                            QJsonObject jsonObj = value.toObject();
+                            QVariantMap contact = jsonObj.toVariantMap();
+                            _recentContacts.append(contact);
+                        }
+                    }
+                    
+                    emit recentContactsChanged();
+                    
+                    // 保存到新的用户特定文件
+                    QTimer::singleShot(0, this, [this]() {
+                        saveToLocal();
+                    });
+                }
+            }
             return;
         }
         
@@ -356,8 +507,13 @@ void RecentContactsManager::loadFromLocal()
                     }
                 }
                 
-            
                 emit recentContactsChanged();
+                
+                // 记录加载的数据数量
+                auto networkClient = NetworkClient::instance();
+                if (networkClient && networkClient->isAuthenticated()) {
+                    LOG_INFO(QString("Loaded %1 recent contacts for user %2").arg(_recentContacts.size()).arg(networkClient->userId()));
+                }
             }
         } else {
             LOG_ERROR("Failed to open recent contacts file");
@@ -430,12 +586,16 @@ QString RecentContactsManager::getRecentContactsFilePath()
     // 获取当前用户ID，用于区分不同用户的最近联系人数据
     auto networkClient = NetworkClient::instance();
     qint64 currentUserId = 0;
-    if (networkClient) {
+    if (networkClient && networkClient->isAuthenticated()) {
         currentUserId = networkClient->userId();
     }
     
-    QString fileName = currentUserId > 0 ? 
-        QString("recent_contacts_%1.json").arg(currentUserId) : 
-        "recent_contacts.json";
+    // 确保用户ID有效
+    if (currentUserId <= 0) {
+        LOG_WARNING("Invalid user ID for recent contacts file path, using default file");
+        return dataDir + "/recent_contacts.json";
+    }
+    
+    QString fileName = QString("recent_contacts_%1.json").arg(currentUserId);
     return dataDir + "/" + fileName;
 }

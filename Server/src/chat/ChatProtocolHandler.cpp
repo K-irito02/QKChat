@@ -712,7 +712,8 @@ QJsonObject ChatProtocolHandler::handleGetOfflineMessages(const QJsonObject& req
     data["messages"] = messages;
     data["count"] = messages.size();
 
-    return createSuccessResponse(requestId, action, data);
+    // 修复：将action改为message_offline_response以匹配客户端期望
+    return createSuccessResponse(requestId, "message_offline_response", data);
 }
 
 QJsonObject ChatProtocolHandler::handleDeleteMessage(const QJsonObject& request, qint64 userId)

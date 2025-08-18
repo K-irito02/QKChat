@@ -434,6 +434,14 @@ void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &r
             }
         });
 
+        // 登录成功后加载最近联系人数据
+        QTimer::singleShot(200, [this]() {
+            auto recentManager = RecentContactsManager::instance();
+            if (recentManager) {
+                recentManager->loadDataAfterLogin();
+            }
+        });
+
         // 登录成功后立即初始化ChatNetworkClient并发送好友列表请求
         ChatNetworkClient* chatClient = ChatNetworkClient::instance();
         if (chatClient && chatClient->initialize()) {
@@ -441,6 +449,8 @@ void AuthManager::onLoginResponse(const QString &requestId, const QJsonObject &r
             QTimer::singleShot(100, [chatClient]() {
                 chatClient->getFriendList();
                 chatClient->getFriendGroups();
+                // 获取离线消息
+                chatClient->getOfflineMessages();
             });
         }
         

@@ -9,6 +9,7 @@
 #include <QMutexLocker>
 #include <QTimer>
 #include <QUuid>
+#include <algorithm>
 
 // 静态成员初始化
 ChatMessageManager* ChatMessageManager::s_instance = nullptr;
@@ -34,6 +35,7 @@ ChatMessageManager::ChatMessageManager(QObject *parent)
         connect(chatClient, &ChatNetworkClient::chatHistoryReceived, this, &ChatMessageManager::handleChatHistoryReceived);
         connect(chatClient, &ChatNetworkClient::messageReceived, this, &ChatMessageManager::handleMessageReceived);
         connect(chatClient, &ChatNetworkClient::messageStatusUpdated, this, &ChatMessageManager::handleMessageStatusUpdated);
+        connect(chatClient, &ChatNetworkClient::offlineMessagesReceived, this, &ChatMessageManager::handleOfflineMessagesReceived);
     }
     
 
@@ -77,14 +79,11 @@ void ChatMessageManager::setCurrentChatUser(const QVariantMap& user)
     
 
     
-    // 如果用户为空，说明是用户切换，清理所有聊天相关数据
+    // 如果用户为空，说明是用户切换，只清理聊天消息，保留最近联系人数据
+    // 最近联系人数据将在好友列表更新时通过filterByFriendList进行智能过滤
     if (user.isEmpty()) {
-    
-        // 清理最近联系人数据
-        auto recentManager = RecentContactsManager::instance();
-        if (recentManager) {
-            recentManager->clearInvalidContacts();
-        }
+        // 不再清理最近联系人数据，避免登录时数据丢失
+        // 无效联系人将在获取好友列表后自动过滤
     }
     
     // 如果设置了新用户，检查是否与当前用户是好友关系
@@ -185,7 +184,7 @@ void ChatMessageManager::sendMessage(const QString& content, const QString& type
         }
         messageData["sender_avatar"] = currentUserName.isEmpty() ? QString("我") : QString(currentUserName.at(0).toUpper());
         
-        addMessage(messageData, false);
+        addMessage(messageData, false); // 新消息添加到末尾，在TopToBottom布局中显示在底部
         
         chatClient->sendMessage(receiverId, content, type);
         
@@ -194,16 +193,17 @@ void ChatMessageManager::sendMessage(const QString& content, const QString& type
         if (recentManager) {
             QString timeStr = QDateTime::currentDateTime().toString("hh:mm");
             
-            // 确保接收者被添加到最近联系人列表中
+            // 确保接收者被添加到最近联系人列表中，同时设置消息内容
             QVariantMap receiverContact;
             receiverContact["user_id"] = receiverId;
             receiverContact["username"] = _currentChatUser.value("username").toString();
             receiverContact["display_name"] = _currentChatUser.value("display_name", _currentChatUser.value("username")).toString();
             receiverContact["avatar_url"] = _currentChatUser.value("avatar_url").toString();
+            receiverContact["last_message"] = content;
+            receiverContact["last_message_time"] = timeStr;
             recentManager->addRecentContact(receiverContact);
             
-            // 更新最后消息
-            recentManager->updateLastMessage(receiverId, content, timeStr);
+            LOG_INFO(QString("Updated recent contact for sent message to %1: content='%2', time='%3'").arg(receiverId).arg(content).arg(timeStr));
         }
     } else {
         LOG_ERROR("ChatNetworkClient not available");
@@ -380,34 +380,37 @@ void ChatMessageManager::handleMessageReceived(const QJsonObject& message)
         }
     }
     
-    // 如果消息不是自己发送的，增加未读计数
+    // 更新最近联系人列表 - 只处理接收到的他人消息
     if (senderId != currentUserId) {
         setUnreadCount(_unreadCount + 1);
         
-        // 更新最近联系人的未读计数和最后消息 - 使用发送者ID
         auto recentManager = RecentContactsManager::instance();
         if (recentManager) {
             QString content = messageData.value("content").toString();
             QString timeStr = messageData.value("time").toString();
             
-            // 确保发送者被添加到最近联系人列表中
+            // 接收到他人消息时，更新发送者的最近联系人信息
             QVariantMap senderContact;
             senderContact["user_id"] = senderId;
             senderContact["username"] = messageData.value("sender_name").toString();
             senderContact["display_name"] = messageData.value("sender_name").toString();
             senderContact["avatar_url"] = messageData.value("sender_avatar").toString();
+            senderContact["last_message"] = content;
+            senderContact["last_message_time"] = timeStr;
             recentManager->addRecentContact(senderContact);
             
-            // 更新最后消息和未读计数
-            recentManager->updateLastMessage(senderId, content, timeStr);
+            // 更新未读计数
             recentManager->updateUnreadCount(senderId, _unreadCount);
+            
+            LOG_INFO(QString("Updated recent contact for received message from %1: content='%2', time='%3'").arg(senderId).arg(content).arg(timeStr));
         }
     }
+    // 注意：自己发送的消息确认不需要更新最近联系人列表，因为发送时已经更新过了
     
     // 只有当当前有选中的聊天用户且消息与聊天用户相关时，才添加到聊天消息列表
     if (!_currentChatUser.isEmpty() && 
         (senderId == chatUserId || receiverId == chatUserId)) {
-        addMessage(messageData, false); // 新消息添加到末尾
+        addMessage(messageData, false); // 新消息添加到开头，在BottomToTop布局中显示在底部
     }
     
 
@@ -417,10 +420,10 @@ void ChatMessageManager::handleMessageReceived(const QJsonObject& message)
 void ChatMessageManager::handleMessageSent(const QString& messageId, bool success)
 {
     if (success) {
-    
+        // 静默处理发送成功，不显示"已发送"状态
         emit messageSendResult(true, "消息发送成功");
         
-        // 更新本地消息状态为已发送
+        // 更新本地消息状态为已发送，但不显示状态指示器
         for (int i = 0; i < _messages.size(); ++i) {
             QVariantMap message = _messages[i].toMap();
             if (message.value("delivery_status").toString() == "sending") {
@@ -435,7 +438,7 @@ void ChatMessageManager::handleMessageSent(const QString& messageId, bool succes
         LOG_ERROR(QString("Failed to send message: %1").arg(messageId));
         emit messageSendResult(false, "消息发送失败");
         
-        // 更新本地消息状态为发送失败
+        // 更新本地消息状态为发送失败，显示红色感叹号
         for (int i = 0; i < _messages.size(); ++i) {
             QVariantMap message = _messages[i].toMap();
             if (message.value("delivery_status").toString() == "sending") {
@@ -491,8 +494,8 @@ void ChatMessageManager::handleChatHistoryReceived(qint64 userId, const QJsonArr
         QVariantMap messageData = createMessageData(messageObj);
         
         if (_currentOffset == 0) {
-            // 首次加载，直接添加
-            addMessage(messageData, false);
+            // 首次加载，使用prepend确保较早的消息在顶部
+            addMessage(messageData, true);
         } else {
             // 加载更多历史，添加到开头
             addMessage(messageData, true);
@@ -503,6 +506,17 @@ void ChatMessageManager::handleChatHistoryReceived(qint64 userId, const QJsonArr
             !messageData.value("is_own", false).toBool()) {
             unreadCount++;
         }
+    }
+    
+    // 如果是首次加载，对消息按时间排序（较早的在前面）
+    if (_currentOffset == 0 && !_messages.isEmpty()) {
+        std::sort(_messages.begin(), _messages.end(), [](const QVariant& a, const QVariant& b) {
+            QVariantMap msgA = a.toMap();
+            QVariantMap msgB = b.toMap();
+            QDateTime timeA = msgA.value("created_at").toDateTime();
+            QDateTime timeB = msgB.value("created_at").toDateTime();
+            return timeA < timeB; // 较早的时间在前
+        });
     }
     
     // 更新状态
@@ -594,15 +608,18 @@ QVariantMap ChatMessageManager::createMessageData(const QJsonObject& message)
     
     // 设置已读状态
     data["is_read"] = message.value("is_read").toBool(true);
-    
     return data;
 }
 
 void ChatMessageManager::addMessage(const QVariantMap& message, bool prepend)
 {
+    // 使用TopToBottom布局，确保消息按时间顺序从下往上显示
+    // 较早的消息应该在列表开头（显示在顶部），较新的消息应该在列表末尾（显示在底部）
     if (prepend) {
+        // 历史消息加载时使用prepend添加到列表开头（较早的消息）
         _messages.prepend(message);
     } else {
+        // 新消息使用append添加到列表末尾，在TopToBottom布局中显示在底部（较新的消息）
         _messages.append(message);
     }
     
@@ -649,5 +666,59 @@ QString ChatMessageManager::formatMessageTime(const QDateTime& dateTime)
     } else {
         // 其他年份的消息
         return dateTime.toString("yyyy-MM-dd hh:mm");
+    }
+}
+
+void ChatMessageManager::handleOfflineMessagesReceived(const QJsonArray& messages)
+{
+    QMutexLocker locker(&_mutex);
+    
+    for (const auto& messageValue : messages) {
+        QJsonObject messageObj = messageValue.toObject();
+        QVariantMap messageData = createMessageData(messageObj);
+        
+        qint64 senderId = messageObj.value("sender_id").toVariant().toLongLong();
+        qint64 receiverId = messageObj.value("receiver_id").toVariant().toLongLong();
+        qint64 currentUserId = getCurrentUserId();
+        
+        if (senderId != currentUserId && receiverId != currentUserId) {
+            continue;
+        }
+        
+        if (senderId != currentUserId) {
+            setUnreadCount(_unreadCount + 1);
+            
+            auto recentManager = RecentContactsManager::instance();
+            if (recentManager) {
+                QString content = messageData.value("content").toString();
+                QString timeStr = messageData.value("time").toString();
+                
+                QVariantMap senderContact;
+                senderContact["user_id"] = senderId;
+                senderContact["username"] = messageData.value("sender_name").toString();
+                senderContact["display_name"] = messageData.value("sender_name").toString();
+                senderContact["avatar_url"] = messageData.value("sender_avatar").toString();
+                senderContact["last_message"] = content;
+                senderContact["last_message_time"] = timeStr;
+                
+                recentManager->addRecentContact(senderContact);
+                recentManager->updateUnreadCount(senderId, _unreadCount);
+            }
+        }
+        
+        qint64 chatUserId = _currentChatUser.value("user_id").toLongLong();
+        if (chatUserId <= 0) {
+            chatUserId = _currentChatUser.value("id").toLongLong();
+        }
+        if (chatUserId <= 0) {
+            chatUserId = _currentChatUser.value("friend_id").toLongLong();
+        }
+        
+        if (!_currentChatUser.isEmpty() && 
+            (senderId == chatUserId || receiverId == chatUserId)) {
+            addMessage(messageData, false);
+        }
+        
+        emit newMessageReceived(messageData);
     }
 }

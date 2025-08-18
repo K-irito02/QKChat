@@ -156,7 +156,43 @@ Rectangle {
             
             clip: true
             spacing: 8
-            verticalLayoutDirection: ListView.BottomToTop
+            verticalLayoutDirection: ListView.TopToBottom
+            
+            // 用户滚动状态跟踪
+            property bool userScrolling: false
+            property int lastContentY: 0
+            
+            // 检测用户滚动
+            onContentYChanged: {
+                if (!userScrolling && Math.abs(contentY - lastContentY) > 10) {
+                    userScrolling = true
+                    // 用户开始滚动，3秒后重置状态
+                    scrollResetTimer.restart()
+                }
+                lastContentY = contentY
+            }
+            
+            // 自动滚动到底部（新消息）- 只在用户没有主动滚动时
+            onCountChanged: {
+                Qt.callLater(function() {
+                    if (count > 0 && !userScrolling) {
+                        positionViewAtEnd()
+                    }
+                })
+            }
+            
+            // 平滑滚动配置
+            boundsBehavior: Flickable.StopAtBounds
+            flickDeceleration: 1500
+            
+            // 滚动重置定时器
+            Timer {
+                id: scrollResetTimer
+                interval: 3000
+                onTriggered: {
+                    messageListView.userScrolling = false
+                }
+            }
             
             // 自定义滚动条
             ScrollBar.vertical: ScrollBar {
@@ -193,6 +229,29 @@ Rectangle {
                     text: qsTr("加载更多消息")
                     
                     onClicked: root.loadMoreMessages()
+                    
+                    background: Rectangle {
+                        color: parent.pressed ? Qt.darker(ThemeManager.buttonColor, 1.2) : 
+                               parent.hovered ? Qt.lighter(ThemeManager.buttonColor, 1.1) : ThemeManager.buttonColor
+                        border.color: ThemeManager.borderColor
+                        border.width: 1
+                        radius: 6
+                    }
+                }
+            }
+            
+            // 滚动到底部按钮
+            footer: Rectangle {
+                width: messageListView.width
+                height: 40
+                color: "transparent"
+                visible: messageListView.userScrolling && messageListView.count > 0
+                
+                Button {
+                    anchors.centerIn: parent
+                    text: qsTr("滚动到底部")
+                    
+                    onClicked: root.scrollToBottom()
                     
                     background: Rectangle {
                         color: parent.pressed ? Qt.darker(ThemeManager.buttonColor, 1.2) : 
@@ -339,6 +398,7 @@ Rectangle {
     
     // 滚动到底部
     function scrollToBottom() {
-        messageListView.positionViewAtBeginning()
+        messageListView.userScrolling = false
+        messageListView.positionViewAtEnd()
     }
 }

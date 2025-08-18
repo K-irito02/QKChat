@@ -65,6 +65,7 @@ qt_add_resources(appClient "qml"
         qml/components/FriendListItem.qml
         qml/components/ChatView.qml
         qml/components/MessageBubble.qml
+        qml/components/MessageAnimation.qml
         qml/components/UserSearchDialog.qml
         qml/components/UserSearchResultItem.qml
         qml/components/GroupHeader.qml

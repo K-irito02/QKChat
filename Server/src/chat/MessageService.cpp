@@ -140,14 +140,16 @@ QString MessageService::sendMessage(qint64 senderId, qint64 receiverId, MessageT
             updateMessageStatus(messageId, Delivered);
         } else {
             // 添加到离线消息队列
-            addToOfflineQueue(receiverId, dbMessageId);
+            bool addedToQueue = addToOfflineQueue(receiverId, dbMessageId);
+            if (!addedToQueue) {
+                LOG_ERROR(QString("Failed to add message %1 to offline queue for user %2").arg(messageId).arg(receiverId));
+            }
         }
         
         // 发送信号
         emit newMessage(senderId, receiverId, messageId, messageJson);
         
-        LOG_INFO(QString("MessageService: sendMessage - Successfully sent message %1 from %2 to %3")
-                 .arg(messageId).arg(senderId).arg(receiverId));
+
         
         return messageId;
         
@@ -430,6 +432,8 @@ QJsonArray MessageService::getOfflineMessages(qint64 userId)
 {
     QMutexLocker locker(&_mutex);
 
+
+    
     QJsonArray messages;
     // 使用RAII包装器自动管理数据库连接
     DatabaseConnection dbConn;
@@ -492,7 +496,10 @@ QJsonArray MessageService::getOfflineMessages(qint64 userId)
         placeholders.chop(1); // 移除最后一个逗号
 
         QVariantList updateParams = {userId};
-        updateParams.append(QVariant::fromValue(processedMessageIds));
+        // 正确添加message_id列表到参数中
+        for (qint64 messageId : processedMessageIds) {
+            updateParams.append(messageId);
+        }
 
         int result = dbConn.executeUpdate(
             QString("UPDATE offline_message_queue SET delivered_at = NOW() "
@@ -505,7 +512,6 @@ QJsonArray MessageService::getOfflineMessages(qint64 userId)
         }
     }
 
-    // 获取离线消息成功
     return messages;
 }
 
@@ -752,11 +758,10 @@ bool MessageService::addToOfflineQueue(qint64 userId, qint64 messageId, int prio
     );
 
     if (result == -1) {
-        LOG_ERROR("Failed to add message to offline queue");
+        LOG_ERROR(QString("Failed to add message %1 to offline queue for user %2").arg(messageId).arg(userId));
         return false;
     }
 
-    // 消息已添加到离线队列
     return true;
 }
 
