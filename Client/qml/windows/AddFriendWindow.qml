@@ -595,6 +595,5 @@ Window {
         }
         
         // 这里应该将新分组保存到服务器
-        console.log("创建新分组:", newGroup)
     }
 }

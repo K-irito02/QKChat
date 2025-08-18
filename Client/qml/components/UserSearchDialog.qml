@@ -771,13 +771,11 @@ Window {
     function loadFriendRequests() {
         // 发送获取好友请求列表的请求到服务器
         if (networkClient) {
-            console.log("正在获取好友请求列表...")
             networkClient.getFriendRequests()
             
             // 添加延迟刷新机制，确保数据同步
             var syncTimer = Qt.createQmlObject('import QtQuick 2.15; Timer { interval: 500; repeat: false; running: true }', root, "syncTimer")
             syncTimer.triggered.connect(function() {
-                console.log("执行好友请求列表同步刷新")
                 networkClient.getFriendRequests()
             })
         }
@@ -786,11 +784,8 @@ Window {
     // 同意好友请求
     function acceptFriendRequest(requestData) {
         if (networkClient) {
-            console.log("同意好友请求:", JSON.stringify(requestData))
-            
             // 确保request_id是数字类型
             var requestId = parseInt(requestData.request_id)
-            console.log("转换后的request_id:", requestId, "类型:", typeof requestId)
             
             networkClient.respondToFriendRequest(requestId, true)
             
@@ -810,11 +805,8 @@ Window {
     // 拒绝好友请求
     function rejectFriendRequest(requestData) {
         if (networkClient) {
-            console.log("拒绝好友请求:", JSON.stringify(requestData))
-            
             // 确保request_id是数字类型
             var requestId = parseInt(requestData.request_id)
-            console.log("转换后的request_id:", requestId, "类型:", typeof requestId)
             
             networkClient.respondToFriendRequest(requestId, false)
             
@@ -832,7 +824,6 @@ Window {
             // 延迟刷新好友请求列表，确保服务器状态同步
             var refreshTimer = Qt.createQmlObject('import QtQuick 2.15; Timer { interval: 1000; repeat: false; running: true }', root, "refreshTimer")
             refreshTimer.triggered.connect(function() {
-                console.log("刷新好友请求列表以确保状态同步")
                 loadFriendRequests()
             })
         }
@@ -841,25 +832,18 @@ Window {
     // 忽略好友请求
     function ignoreFriendRequest(requestData) {
         if (networkClient) {
-            console.log("忽略好友请求:", JSON.stringify(requestData))
-            
             // 确保request_id是数字类型
             var requestId = parseInt(requestData.request_id)
-            console.log("转换后的request_id:", requestId, "类型:", typeof requestId)
-            console.log("申请类型:", requestData.request_type, "状态:", requestData.status)
             
             // 根据申请类型和状态决定处理方式
             if (requestData.request_type === "sent" && requestData.status === "pending") {
                 // 我发送的待处理申请 - 取消申请
-                console.log("取消我发送的好友申请")
                 networkClient.ignoreFriendRequest(requestId)
             } else if (requestData.request_type === "received" && requestData.status === "pending") {
                 // 我收到的待处理申请 - 忽略申请
-                console.log("忽略我收到的好友申请")
                 networkClient.ignoreFriendRequest(requestId)
             } else {
                 // 已处理的申请 - 清理通知记录
-                console.log("清理已处理的好友申请通知")
                 networkClient.ignoreFriendRequest(requestId)
             }
             
@@ -983,11 +967,8 @@ Window {
     // 处理接受好友请求（带备注和分组）
     function handleAcceptFriendWithSettings(requestData, note, groupName) {
         if (networkClient) {
-            console.log("同意好友请求:", JSON.stringify(requestData), "备注:", note, "分组:", groupName)
-            
             // 确保request_id是数字类型
             var requestId = parseInt(requestData.request_id)
-            console.log("转换后的request_id:", requestId, "类型:", typeof requestId)
             
             // 发送接受请求，包含备注和分组信息
             networkClient.respondToFriendRequestWithSettings(requestId, true, note, groupName)
@@ -1068,7 +1049,6 @@ Window {
         }
         
         // 这里应该将新分组保存到服务器
-        console.log("创建新分组:", newGroup)
     }
     
     // 接受好友请求对话框

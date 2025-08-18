@@ -67,7 +67,6 @@ ApplicationWindow {
         source: "../pages/MainPage.qml"
 
         onLoaded: {
-            console.log("MainPage加载完成")
             try {
                 // 设置MainPage属性
                 item.themeManager = currentThemeManager
@@ -75,26 +74,19 @@ ApplicationWindow {
                 item.sessionManager = chatWindow.sessionManager
                 item.loadingDialog = loadingDialog
                 item.messageDialog = messageDialog
-                
-                console.log("MainPage属性设置完成 - themeManager:", !!item.themeManager, "authManager:", !!item.authManager)
 
                 // 连接登出信号
                 item.logout.connect(function() {
                     chatWindow.logout()
                 })
-                
-                console.log("MainPage初始化完成")
             } catch (error) {
                 console.error("MainPage初始化错误:", error)
             }
         }
 
         onStatusChanged: {
-            console.log("MainPage加载状态变化:", status)
             if (status === Loader.Error) {
                 console.error("MainPage加载失败:", sourceComponent.errorString())
-            } else if (status === Loader.Ready) {
-                console.log("MainPage加载就绪")
             }
         }
     }

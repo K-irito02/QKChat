@@ -91,6 +91,7 @@ MCP/
 
 # ===== 编辑器配置文件 =====
 .vscode/
+.trae/
 .augment/
 .cursor/
 .windsurfrules

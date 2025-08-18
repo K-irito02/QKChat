@@ -44,15 +44,7 @@ Rectangle {
 
     // 监听currentChatUser变化
     onCurrentChatUserChanged: {
-        console.log("=== currentChatUser变化 ===")
-        console.log("新的currentChatUser:", JSON.stringify(currentChatUser))
-        if (currentChatUser) {
-            console.log("用户ID字段检查:")
-            console.log("  user_id:", currentChatUser.user_id)
-            console.log("  id:", currentChatUser.id)
-            console.log("  friend_id:", currentChatUser.friend_id)
-        }
-        console.log("=== currentChatUser变化结束 ===")
+        // currentChatUser变化处理
     }
     
     // 好友请求相关属性
@@ -101,9 +93,7 @@ Rectangle {
     
     // 刷新好友请求列表
     function refreshFriendRequests() {
-        console.log("刷新好友请求列表")
         if (isLoadingRequests) {
-            console.log("好友请求正在加载中，跳过重复刷新")
             return
         }
         isLoadingRequests = true
@@ -118,26 +108,15 @@ Rectangle {
     // 刷新好友列表和分组（防重复调用）
     property bool isRefreshingFriends: false
     function refreshFriendData() {
-        console.log("=== 开始刷新好友数据 ===")
-        console.log("当前时间:", new Date().toISOString())
-        console.log("刷新状态:", isRefreshingFriends ? "正在刷新中" : "可以刷新")
-        
         if (isRefreshingFriends) {
-            console.log("好友数据正在刷新中，跳过重复刷新")
             return
         }
         
-        console.log("开始刷新好友数据")
         isRefreshingFriends = true
         
         if (ChatNetworkClient) {
-            console.log("ChatNetworkClient可用，发送好友列表请求...")
             ChatNetworkClient.getFriendList()
-            console.log("好友列表请求已发送")
-            
-            console.log("发送好友分组请求...")
             ChatNetworkClient.getFriendGroups()
-            console.log("好友分组请求已发送")
         } else {
             console.error("ChatNetworkClient不可用，无法刷新好友数据")
         }
@@ -145,11 +124,8 @@ Rectangle {
         // 重置刷新状态
         var resetTimer = Qt.createQmlObject('import QtQuick 2.15; Timer { interval: 2000; repeat: false; running: true }', mainPage, "resetRefreshTimer")
         resetTimer.triggered.connect(function() {
-            console.log("重置好友数据刷新状态")
             isRefreshingFriends = false
         })
-        
-        console.log("=== 好友数据刷新请求完成 ===")
     }
     
     // 初始化时获取好友请求和好友列表（已合并到文件末尾的Component.onCompleted中）
@@ -634,17 +610,9 @@ Rectangle {
                                     delegate: recentContactDelegate
                                     spacing: 2
                                     
-                                    // 添加调试信息
+                                    // 监听列表变化
                                     onCountChanged: {
-                                        console.log("最近联系人列表数量变化:", count)
-                                        console.log("最近联系人列表内容长度:", RecentContactsManager.recentContacts.length)
-                                        if (RecentContactsManager.recentContacts.length > 0) {
-                                            console.log("第一个联系人数据:")
-                                            var firstContact = RecentContactsManager.recentContacts[0]
-                                            console.log("  user_id:", firstContact.user_id)
-                                            console.log("  username:", firstContact.username)
-                                            console.log("  display_name:", firstContact.display_name)
-                                        }
+                                        // 列表数量变化处理
                                     }
                                     
                                     ScrollBar.vertical: ScrollBar {
@@ -684,33 +652,17 @@ Rectangle {
 
                                     onItemClicked: function(itemData) {
                                         // Friend clicked - 设置当前聊天用户
-                                        console.log("=== 好友点击事件开始 ===")
-                                        console.log("点击的好友数据字段检查:")
-                                        console.log("  user_id:", itemData.user_id)
-                                        console.log("  id:", itemData.id)
-                                        console.log("  username:", itemData.username)
-                                        console.log("  display_name:", itemData.display_name)
-                                        
                                         currentChatUser = itemData
-                                        console.log("currentChatUser已设置，字段检查:")
-                                        console.log("  user_id:", currentChatUser.user_id)
-                                        console.log("  username:", currentChatUser.username)
-                                        console.log("  display_name:", currentChatUser.display_name)
-                                        
                                         ChatMessageManager.setCurrentChatUser(itemData)
-                                        console.log("ChatMessageManager.setCurrentChatUser已调用")
                                         
                                         // 切换到最近联系分类，显示聊天记录
                                         recentButton.isActive = true
                                         friendsButton.isActive = false
                                         groupsButton.isActive = false
                                         currentNavCategory = "recent"
-                                        console.log("已切换到最近联系分类，currentNavCategory:", currentNavCategory)
                                         
                                         // 添加到最近联系人
-                                        console.log("准备添加到最近联系人...")
                                         addToRecentContacts(itemData)
-                                        console.log("=== 好友点击事件结束 ===")
                                     }
 
                                     onItemDoubleClicked: function(itemData) {
@@ -1478,18 +1430,10 @@ Rectangle {
                         anchors.centerIn: parent
                         text: {
                             var displayName = modelData.display_name || modelData.username || modelData.name || modelData.displayName || "";
-                            console.log("最近联系人头像显示 - displayName:", displayName);
-                            console.log("最近联系人头像显示 - 字段检查:");
-                            console.log("  display_name:", modelData.display_name);
-                            console.log("  username:", modelData.username);
-                            console.log("  name:", modelData.name);
-                            console.log("  displayName:", modelData.displayName);
                             if (displayName && displayName.length > 0) {
                                 var firstChar = displayName.charAt(0).toUpperCase();
-                                console.log("最近联系人头像显示 - firstChar:", firstChar);
                                 return firstChar;
                             } else {
-                                console.log("最近联系人头像显示 - 使用默认字符 ?");
                                 return "?";
                             }
                         }
@@ -1521,13 +1465,6 @@ Rectangle {
                     Text {
                         text: {
                             var displayText = modelData.display_name || modelData.username || modelData.name || modelData.displayName || "";
-                            console.log("最近联系人显示名称:", displayText);
-                            console.log("最近联系人数据字段检查:");
-                            console.log("  display_name:", modelData.display_name);
-                            console.log("  username:", modelData.username);
-                            console.log("  user_id:", modelData.user_id);
-                            console.log("  name:", modelData.name);
-                            console.log("  displayName:", modelData.displayName);
                             return displayText || "未知用户";
                         }
                         color: themeManager.currentTheme.textPrimaryColor
@@ -1583,23 +1520,8 @@ Rectangle {
 
                 onClicked: function(mouse) {
                     if (mouse.button === Qt.LeftButton) {
-                        console.log("=== 最近联系人点击事件开始 ===")
-                        console.log("点击的最近联系人数据字段检查:")
-                        console.log("  user_id:", modelData.user_id)
-                        console.log("  id:", modelData.id)
-                        console.log("  username:", modelData.username)
-                        console.log("  display_name:", modelData.display_name)
-                        
                         currentChatUser = modelData
-                        console.log("currentChatUser已设置，字段检查:")
-                        console.log("  user_id:", currentChatUser.user_id)
-                        console.log("  username:", currentChatUser.username)
-                        console.log("  display_name:", currentChatUser.display_name)
-                        
                         ChatMessageManager.setCurrentChatUser(modelData)
-                        console.log("ChatMessageManager.setCurrentChatUser已调用")
-                        
-                        console.log("=== 最近联系人点击事件结束 ===")
                     } else if (mouse.button === Qt.RightButton) {
                         // 显示右键菜单
                         recentContextMenu.contactData = modelData
@@ -1609,22 +1531,8 @@ Rectangle {
 
                 onDoubleClicked: function(mouse) {
                     if (mouse.button === Qt.LeftButton) {
-                        console.log("=== 最近联系人双击事件开始 ===")
-                        console.log("双击的最近联系人数据字段检查:")
-                        console.log("  user_id:", modelData.user_id)
-                        console.log("  username:", modelData.username)
-                        console.log("  display_name:", modelData.display_name)
-                        
                         currentChatUser = modelData
-                        console.log("currentChatUser已设置，字段检查:")
-                        console.log("  user_id:", currentChatUser.user_id)
-                        console.log("  username:", currentChatUser.username)
-                        console.log("  display_name:", currentChatUser.display_name)
-                        
                         ChatMessageManager.setCurrentChatUser(modelData)
-                        console.log("ChatMessageManager.setCurrentChatUser已调用")
-                        
-                        console.log("=== 最近联系人双击事件结束 ===")
                     }
                 }
             }
@@ -1851,7 +1759,6 @@ Rectangle {
 
                 onClicked: function(mouse) {
                     if (mouse.button === Qt.LeftButton) {
-                        console.log("Friend selected:", JSON.stringify(model))
                         mainPage.currentChatUser = model
                         ChatMessageManager.setCurrentChatUser(model)
                         
@@ -1865,7 +1772,6 @@ Rectangle {
 
                 onDoubleClicked: function(mouse) {
                     if (mouse.button === Qt.LeftButton) {
-                        console.log("Friend double clicked:", JSON.stringify(model))
                         mainPage.currentChatUser = model
                         ChatMessageManager.setCurrentChatUser(model)
                         
@@ -2033,32 +1939,11 @@ Rectangle {
     
     // 添加到最近联系人函数
     function addToRecentContacts(friendData) {
-        console.log("=== addToRecentContacts函数开始 ===")
-        console.log("传入的friendData字段检查:")
-        console.log("  user_id:", friendData.user_id)
-        console.log("  id:", friendData.id)
-        console.log("  username:", friendData.username)
-        console.log("  display_name:", friendData.display_name)
-        console.log("RecentContactsManager是否存在:", !!RecentContactsManager)
-        
         if (RecentContactsManager) {
-            console.log("调用RecentContactsManager.addRecentContact...")
             RecentContactsManager.addRecentContact(friendData)
-            console.log("RecentContactsManager.addRecentContact调用完成")
-            
-            // 检查最近联系人列表状态
-            console.log("最近联系人列表长度:", RecentContactsManager.recentContacts.length)
-            if (RecentContactsManager.recentContacts.length > 0) {
-                console.log("第一个联系人数据:")
-                var firstContact = RecentContactsManager.recentContacts[0]
-                console.log("  user_id:", firstContact.user_id)
-                console.log("  username:", firstContact.username)
-                console.log("  display_name:", firstContact.display_name)
-            }
         } else {
             console.error("RecentContactsManager不可用!")
         }
-        console.log("=== addToRecentContacts函数结束 ===")
     }
 
     // 收缩模式的联系人委托
@@ -2577,7 +2462,6 @@ Rectangle {
             // 调用删除好友功能
             var friendId = deleteFriendDialog.friendInfo.user_id || deleteFriendDialog.friendInfo.id || deleteFriendDialog.friendInfo.friend_id
             if (friendId) {
-                console.log("删除好友:", friendId, deleteFriendDialog.friendInfo.display_name || deleteFriendDialog.friendInfo.username)
                 ChatNetworkClient.removeFriend(friendId)
             } else {
                 messageDialog.showError("删除失败", "无法获取好友ID")
@@ -3270,20 +3154,9 @@ Rectangle {
 
         function onFriendListReceived(friends) {
             // 处理好友列表更新
-            console.log("=== 收到好友列表更新 ===")
-            console.log("好友列表:", JSON.stringify(friends))
-            console.log("好友列表长度:", friends ? friends.length : 0)
-            
-            if (!friends || friends.length === 0) {
-                console.warn("好友列表为空，可能的原因:")
-                console.warn("1. 服务器端friendships表中没有好友关系记录")
-                console.warn("2. 好友关系状态不是'accepted'")
-                console.warn("3. AcceptFriendRequest存储过程没有正确创建好友关系")
-            }
             
             // 更新FriendGroupManager中的好友数据
             if (FriendGroupManager && typeof FriendGroupManager.handleFriendListReceived === 'function') {
-                console.log("调用FriendGroupManager.handleFriendListReceived")
                 FriendGroupManager.handleFriendListReceived(friends)
             } else {
                 console.error("FriendGroupManager不可用或handleFriendListReceived方法不存在")
@@ -3293,7 +3166,6 @@ Rectangle {
             friendsModel.clear()
             for (var i = 0; i < friends.length; i++) {
                 var friend = friends[i]
-                console.log("处理好友:", friend.username, "ID:", friend.friend_id)
                 friendsModel.append({
                     "id": friend.friend_id || friend.id,
                     "username": friend.username,
@@ -3309,7 +3181,6 @@ Rectangle {
             // 强制刷新UI，确保数据更新
             var uiRefreshTimer = Qt.createQmlObject('import QtQuick 2.15; Timer { interval: 100; repeat: false; running: true }', mainPage, "uiRefreshTimer")
             uiRefreshTimer.triggered.connect(function() {
-                console.log("强制刷新UI - 好友列表更新")
                 // 强制触发属性更新
                 if (FriendGroupManager) {
                     FriendGroupManager.refreshData()
@@ -3319,7 +3190,6 @@ Rectangle {
         
         function onFriendGroupsReceived(groups) {
             // 处理好友分组更新
-            console.log("收到好友分组:", JSON.stringify(groups))
             
             // 更新FriendGroupManager中的分组数据
             if (FriendGroupManager && typeof FriendGroupManager.handleFriendGroupsReceived === 'function') {
@@ -3329,7 +3199,6 @@ Rectangle {
             // 强制刷新UI，确保数据更新
             var uiRefreshTimer = Qt.createQmlObject('import QtQuick 2.15; Timer { interval: 100; repeat: false; running: true }', mainPage, "uiRefreshTimer2")
             uiRefreshTimer.triggered.connect(function() {
-                console.log("强制刷新UI - 好友分组更新")
                 // 强制触发属性更新
                 if (FriendGroupManager) {
                     FriendGroupManager.refreshData()
@@ -3339,7 +3208,6 @@ Rectangle {
         
         function onFriendRequestReceived(request) {
             // 处理收到的好友请求
-            console.log("收到好友请求通知:", JSON.stringify(request))
             
             // 显示好友请求通知
             if (request && request.notification_type === "friend_request") {
@@ -3361,48 +3229,30 @@ Rectangle {
         }
         
         function onFriendRequestResponded(success, message) {
-            console.log("=== 收到好友请求响应 ===")
-            console.log("当前时间:", new Date().toISOString())
-            console.log("成功状态:", success)
-            console.log("响应消息:", message)
-            
             if (success) {
-                console.log("好友请求处理成功，立即刷新好友数据")
                 // 立即刷新好友数据，不使用延迟
                 refreshFriendData()
                 refreshFriendRequests()
-            } else {
-                console.log("好友请求处理失败:", message)
             }
-            
-            console.log("=== 好友请求响应处理完成 ===")
         }
         
         function onFriendListUpdated() {
-            console.log("=== 收到好友列表更新信号，自动刷新好友数据 ===")
-            console.log("当前时间:", new Date().toISOString())
             refreshFriendData()
         }
         
         function onFriendRemoved(friendId) {
-            console.log("=== 好友被删除 ===")
-            console.log("被删除的好友ID:", friendId)
-            
             // 从最近联系人中移除该好友
             if (RecentContactsManager && typeof RecentContactsManager.removeRecentContact === 'function') {
                 RecentContactsManager.removeRecentContact(friendId)
-                console.log("已从最近联系人中移除好友:", friendId)
             }
             
             // 清理该好友的聊天数据
             if (ChatMessageManager && typeof ChatMessageManager.clearMessagesForUser === 'function') {
                 ChatMessageManager.clearMessagesForUser(friendId)
-                console.log("已清理好友的聊天数据:", friendId)
             }
             
             // 如果当前聊天用户是被删除的好友，清空聊天区域
             if (currentChatUser && (currentChatUser.user_id === friendId || currentChatUser.id === friendId || currentChatUser.friend_id === friendId)) {
-                console.log("当前聊天用户被删除，清空聊天区域")
                 currentChatUser = {}
                 ChatMessageManager.setCurrentChatUser({})
             }
@@ -3594,15 +3444,6 @@ Rectangle {
     // 好友请求响应处理函数
     function onFriendRequestAccepted(requestId, acceptedByUserId, acceptedByUsername, acceptedByDisplayName, note, groupName, timestamp) {
         // 处理好友请求被接受的通知
-        console.log("=== 收到好友请求被接受通知 ===")
-        console.log("当前时间:", new Date().toISOString())
-        console.log("请求ID:", requestId)
-        console.log("接受者用户ID:", acceptedByUserId)
-        console.log("接受者用户名:", acceptedByUsername)
-        console.log("接受者显示名:", acceptedByDisplayName)
-        console.log("备注:", note)
-        console.log("分组名称:", groupName)
-        console.log("时间戳:", timestamp)
         
         // 显示通知
         var acceptedByName = acceptedByDisplayName || acceptedByUsername || "未知用户"
@@ -3614,20 +3455,15 @@ Rectangle {
             message += "\n分组: " + groupName
         }
         
-        console.log("显示通知消息:", message)
         messageDialog.showSuccess("好友请求已接受", message)
         
         // 刷新好友列表和好友请求列表
-        console.log("开始刷新好友数据...")
         refreshFriendData()
-        console.log("开始刷新好友请求列表...")
         refreshFriendRequests()
-        console.log("=== 好友请求接受处理完成 ===")
     }
     
     function onFriendRequestRejected(requestId, rejectedByUserId, rejectedByUsername, rejectedByDisplayName, timestamp) {
         // 处理好友请求被拒绝的通知
-        console.log("收到好友请求被拒绝通知:", requestId, rejectedByUsername)
         
         // 显示通知
         var rejectedByName = rejectedByDisplayName || rejectedByUsername || "未知用户"
@@ -3641,7 +3477,6 @@ Rectangle {
     
     function onFriendRequestIgnored(requestId, ignoredByUserId, ignoredByUsername, ignoredByDisplayName, timestamp) {
         // 处理好友请求被忽略的通知
-        console.log("收到好友请求被忽略通知:", requestId, ignoredByUsername)
         
         // 显示通知
         var ignoredByName = ignoredByDisplayName || ignoredByUsername || "未知用户"
@@ -3655,7 +3490,6 @@ Rectangle {
     
     function onFriendRequestNotification(requestId, fromUserId, fromUsername, fromDisplayName, notificationType, message, timestamp, isOfflineMessage) {
         // 处理好友请求通知（包括离线消息）
-        console.log("收到好友请求通知:", requestId, fromUsername, notificationType, isOfflineMessage ? "离线消息" : "实时消息")
         
         // 显示通知
         var fromName = fromDisplayName || fromUsername || "未知用户"
@@ -3694,11 +3528,8 @@ Rectangle {
     
     // 消息处理函数
             function onMessageReceived(message) {
-            console.log("Message received:", JSON.stringify(message))
-            
             // 检查是否是好友删除通知
             if (message && message.action === "friend_removed") {
-                console.log("收到好友删除通知:", message.remover_id)
                 // 刷新好友列表，因为可能被其他用户删除了好友关系
                 refreshFriendData()
                 messageDialog.showInfo("好友关系变更", "您与某位用户的好友关系已被对方删除")
@@ -3711,21 +3542,18 @@ Rectangle {
         }
     
     function onMessageSent(messageId, success) {
-        console.log("Message sent:", messageId, success)
         if (ChatMessageManager) {
             ChatMessageManager.handleMessageSent(messageId, success)
         }
     }
     
     function onChatHistoryReceived(userId, messages) {
-        console.log("Chat history received for user:", userId, "messages count:", messages.length)
         if (ChatMessageManager) {
             ChatMessageManager.handleChatHistoryReceived(userId, messages)
         }
     }
     
     function onMessageStatusUpdated(messageId, status) {
-        console.log("Message status updated:", messageId, status)
         if (ChatMessageManager) {
             ChatMessageManager.handleMessageStatusUpdated(messageId, status)
         }
@@ -3733,7 +3561,7 @@ Rectangle {
     
     function onMessageSendResult(success, message) {
         if (success) {
-            console.log("Message send success:", message)
+            // Message send success
         } else {
             console.error("Message send failed:", message)
             if (message && message.includes("未加对方为好友")) {
@@ -3745,13 +3573,11 @@ Rectangle {
     }
     
     function onNewMessageReceived(message) {
-        console.log("New message received:", JSON.stringify(message))
         // 可以在这里添加通知或其他UI更新
     }
 
     // 组件初始化
     Component.onCompleted: {
-        console.log("MainPage Component.onCompleted")
         
         // 连接ChatNetworkClient信号
         if (ChatNetworkClient) {

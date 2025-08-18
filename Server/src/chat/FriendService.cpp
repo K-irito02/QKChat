@@ -151,13 +151,43 @@ FriendService::FriendRequestResult FriendService::sendFriendRequest(qint64 fromU
     
     if (friendshipQuery.next()) {
         QString status = friendshipQuery.value("status").toString();
+        qint64 friendshipId = friendshipQuery.value("id").toLongLong();
+        
+        LOG_INFO(QString("Found existing friendship record ID %1 with status '%2' between users %3 and %4")
+                 .arg(friendshipId).arg(status).arg(fromUserId).arg(toUserId));
+        
         if (status == "accepted") {
+            LOG_WARNING(QString("Users %1 and %2 are already friends").arg(fromUserId).arg(toUserId));
             return AlreadyFriends;
         } else if (status == "blocked") {
+            LOG_WARNING(QString("User %1 is blocked by user %2").arg(fromUserId).arg(toUserId));
             return UserBlocked;
+        } else if (status == "deleted") {
+            LOG_INFO(QString("Found deleted friendship between users %1 and %2, cleaning up and allowing new friend request")
+                     .arg(fromUserId).arg(toUserId));
+            
+            // 删除双向的deleted状态记录，确保数据一致性
+            QSqlQuery deleteQuery = dbConn.executeQuery(
+                "DELETE FROM friendships WHERE "
+                "((user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)) "
+                "AND status = 'deleted'",
+                {fromUserId, toUserId, toUserId, fromUserId}
+            );
+            
+            if (deleteQuery.lastError().isValid()) {
+                LOG_WARNING(QString("Failed to delete deleted friendship records: %1").arg(deleteQuery.lastError().text()));
+            } else {
+                int deletedCount = deleteQuery.numRowsAffected();
+                LOG_INFO(QString("Successfully deleted %1 deleted friendship records between users %2 and %3").arg(deletedCount).arg(fromUserId).arg(toUserId));
+            }
+            
+            // 继续执行后续逻辑
+        } else {
+            LOG_INFO(QString("Found friendship with status '%1' between users %2 and %3, allowing new friend request")
+                     .arg(status).arg(fromUserId).arg(toUserId));
         }
-        // 如果状态是 'deleted'，允许重新发送好友申请
-        // 继续执行后续逻辑
+    } else {
+        LOG_INFO(QString("No existing friendship found between users %1 and %2").arg(fromUserId).arg(toUserId));
     }
     
     try {
